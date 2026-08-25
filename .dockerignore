@@ -1,0 +1,17 @@
+.git/
+.gitignore
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.env
+.vscode/
+.idea/
+tests/
+
+# README.md is NOT ignored: pyproject.toml declares it as the project readme,
+# so the build backend needs it present.
