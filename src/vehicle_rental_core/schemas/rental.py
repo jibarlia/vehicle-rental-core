@@ -10,7 +10,7 @@ class RentalCreate(BaseModel):
     start_at: datetime | None = None
 
 
-class RentalEnd(BaseModel):
+class RentalComplete(BaseModel):
     end_at: datetime | None = None
 
 

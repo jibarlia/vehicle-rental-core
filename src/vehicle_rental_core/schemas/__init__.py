@@ -1,4 +1,8 @@
-from vehicle_rental_core.schemas.rental import RentalCreate, RentalEnd, RentalRead
+from vehicle_rental_core.schemas.rental import (
+    RentalComplete,
+    RentalCreate,
+    RentalRead,
+)
 from vehicle_rental_core.schemas.vehicle import (
     VehicleCreate,
     VehicleRead,
@@ -6,8 +10,8 @@ from vehicle_rental_core.schemas.vehicle import (
 )
 
 __all__ = [
+    "RentalComplete",
     "RentalCreate",
-    "RentalEnd",
     "RentalRead",
     "VehicleCreate",
     "VehicleRead",
