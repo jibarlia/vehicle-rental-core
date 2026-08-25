@@ -5,7 +5,7 @@ from fastapi import FastAPI
 
 import vehicle_rental_core.infrastructure.models  # noqa: F401 — populates metadata
 from vehicle_rental_core import __version__
-from vehicle_rental_core.api.errors import install_domain_error_handler
+from vehicle_rental_core.api.errors import register_exception_handlers
 from vehicle_rental_core.api.routers import health, metrics, rentals, vehicles
 from vehicle_rental_core.core.config import Settings, get_settings
 from vehicle_rental_core.core.observability.logging import configure_logging
@@ -48,7 +48,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         install_metrics_middleware(app)
         app.include_router(metrics.router)
 
-    install_domain_error_handler(app)
+    register_exception_handlers(app)
 
     app.include_router(health.router)
     app.include_router(vehicles.router)
