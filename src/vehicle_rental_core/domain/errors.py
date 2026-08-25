@@ -30,11 +30,11 @@ class RegistrationNumberAlreadyExistsError(ConflictError):
 
 
 class VehicleHasActiveRentalError(ConflictError):
-    """Blocks archiving and maintenance while a vehicle is rented out."""
+    """Blocks retiring and maintenance while a vehicle is rented out."""
 
 
-class VehicleArchivedError(ConflictError):
-    """Archiving is terminal — an archived vehicle can no longer be changed."""
+class VehicleRetiredError(ConflictError):
+    """Retiring is terminal — a retired vehicle can no longer be changed."""
 
 
 class VehicleNotRentableError(ConflictError):
@@ -55,3 +55,7 @@ class ValidationError(DomainError):
 
 class InvalidRentalPeriodError(ValidationError):
     pass
+
+
+class InvalidVehicleYearError(ValidationError):
+    """The model year is outside the range a real vehicle could carry."""

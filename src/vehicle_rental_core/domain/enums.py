@@ -15,12 +15,12 @@ class VehicleType(StrEnum):
 class VehicleStatus(StrEnum):
     """Lifecycle state of a vehicle.
 
-    ``ARCHIVED`` is terminal: the vehicle is retired from the fleet but its row
-    and rental history are retained. It is the only supported way to retire a
-    vehicle — a hard ``DELETE`` cascades and destroys the rentals with it.
+    ``RETIRED`` is terminal: the vehicle leaves the fleet, but its row and its
+    rental history are kept. It is the only supported way to take a vehicle out
+    of service — a hard ``DELETE`` cascades and destroys the rentals with it.
     """
 
     AVAILABLE = "available"
     IN_USE = "in_use"
     MAINTENANCE = "maintenance"
-    ARCHIVED = "archived"
+    RETIRED = "retired"
