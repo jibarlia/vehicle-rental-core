@@ -66,7 +66,6 @@ class CustomerRepository:
         """
         statement = delete(CustomerModel).where(CustomerModel.id == customer_id)
         await self._session.execute(statement)
-        await self._session.flush()
 
     async def _get_model(self, customer_id: UUID) -> CustomerModel | None:
         statement = select(CustomerModel).where(CustomerModel.id == customer_id)

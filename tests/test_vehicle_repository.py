@@ -135,7 +135,14 @@ class TestDelete:
         await repository.delete(uuid4())
 
         session.execute.assert_awaited_once()
-        session.flush.assert_awaited_once()
+
+    async def test_should_not_flush(
+        self, repository: VehicleRepository, session: AsyncMock
+    ) -> None:
+        # execute() sends the DELETE straight away, so a flush would be a no-op.
+        await repository.delete(uuid4())
+
+        session.flush.assert_not_awaited()
 
     async def test_should_not_delete_the_rentals_itself(
         self, repository: VehicleRepository, session: AsyncMock

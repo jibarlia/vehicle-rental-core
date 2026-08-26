@@ -99,7 +99,6 @@ class VehicleRepository:
         """
         statement = delete(VehicleModel).where(VehicleModel.id == vehicle_id)
         await self._session.execute(statement)
-        await self._session.flush()
 
     async def _get_model(self, vehicle_id: UUID) -> VehicleModel | None:
         statement = select(VehicleModel).where(VehicleModel.id == vehicle_id)
