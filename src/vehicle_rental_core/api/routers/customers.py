@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, Query, status
 
 from vehicle_rental_core.api.dependencies import CustomerServiceDep
 from vehicle_rental_core.application.commands import CustomerChanges
@@ -58,7 +58,7 @@ async def update_customer(
 @router.delete("/{customer_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_customer(
     customer_id: UUID, customer_service: CustomerServiceDep
-) -> Response:
+) -> None:
     """Delete a customer, keeping their rentals on record.
 
     Unlike a vehicle, a customer is genuinely deleted. Their rentals survive:
@@ -66,4 +66,3 @@ async def delete_customer(
     each rental started, so the history stays readable without them.
     """
     await customer_service.delete(customer_id)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
