@@ -53,3 +53,19 @@ def register_exception_handlers(app: FastAPI) -> None:
         _: Request, error: Exception
     ) -> JSONResponse:
         return _rejection(error, status.HTTP_422_UNPROCESSABLE_CONTENT)
+
+    # Anything reaching here is a bug, not a rejected rule, so it is logged with
+    # a traceback and answered without leaking the exception text.
+    @app.exception_handler(Exception)
+    async def handle_unexpected_error(_: Request, error: Exception) -> JSONResponse:
+        logger.exception(
+            "Unhandled error serving the request",
+            extra={"error": type(error).__name__},
+        )
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "detail": "Internal server error",
+                "error": "InternalServerError",
+            },
+        )
