@@ -6,10 +6,12 @@ from fastapi import APIRouter, Query, status
 from vehicle_rental_core.api.dependencies import RentalServiceDep, VehicleServiceDep
 from vehicle_rental_core.application.commands import VehicleChanges
 from vehicle_rental_core.domain.enums import VehicleStatus
-from vehicle_rental_core.schemas.rental import RentalRead
+from vehicle_rental_core.schemas.rental import ActiveRentalRead, RentalRead
 from vehicle_rental_core.schemas.vehicle import (
+    FleetStatusRead,
     VehicleCreate,
     VehicleRead,
+    VehicleStatusRead,
     VehicleUpdate,
 )
 
@@ -40,6 +42,49 @@ async def list_vehicles(
         status=status_filter, offset=offset, limit=limit
     )
     return [VehicleRead.model_validate(vehicle) for vehicle in vehicles]
+
+
+# Declared above GET /{vehicle_id} on purpose: FastAPI matches routes in
+# declaration order, so below it the literal "status" would be swallowed by the
+# UUID path param and answered with a puzzling 422. Keep this handler first.
+@router.get("/status", response_model=FleetStatusRead)
+async def get_fleet_status(
+    vehicle_service: VehicleServiceDep,
+    status_filter: Annotated[VehicleStatus | None, Query(alias="status")] = None,
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> FleetStatusRead:
+    """The fleet at a glance: counts over every vehicle, plus one page of them.
+
+    The counts describe the whole fleet whatever the filter and page are, so
+    "how many are available?" is answerable without walking the table. A vehicle
+    that is out carries the rental explaining it, which is what saves a caller
+    from asking each one in turn.
+    """
+    fleet = await vehicle_service.fleet_status(
+        status=status_filter, offset=offset, limit=limit
+    )
+    return FleetStatusRead(
+        counts=dict(fleet.counts),
+        total=fleet.total,
+        items=[
+            # Built field by field rather than validated off the entry: the row
+            # is a chosen subset, and current_rental comes from a second object.
+            VehicleStatusRead(
+                id=entry.vehicle.id,
+                registration_number=entry.vehicle.registration_number,
+                model=entry.vehicle.model,
+                year=entry.vehicle.year,
+                status=entry.vehicle.status,
+                current_rental=(
+                    ActiveRentalRead.model_validate(entry.current_rental)
+                    if entry.current_rental is not None
+                    else None
+                ),
+            )
+            for entry in fleet.entries
+        ],
+    )
 
 
 @router.get("/{vehicle_id}", response_model=VehicleRead)
