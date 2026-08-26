@@ -22,12 +22,8 @@ class TestUpdate:
     async def test_should_reject_a_rental_whose_row_is_gone(
         self, repository: RentalRepository, session: AsyncMock
     ) -> None:
-        # A domain error, not a bare LookupError: the API layer maps this to a
-        # 409 instead of letting it escape as a 500.
-        #
-        # The result is a MagicMock, not the AsyncMock a child of `session`
-        # would default to — scalar_one_or_none is sync and must not return a
-        # coroutine.
+        # A domain error, not a bare LookupError, so the API maps it to a 409.
+        # MagicMock, not AsyncMock: scalar_one_or_none is sync.
         result = MagicMock()
         result.scalar_one_or_none.return_value = None
         session.execute.return_value = result
@@ -43,8 +39,7 @@ class TestListActiveForVehicles:
     async def test_should_not_query_for_an_empty_id_list(
         self, repository: RentalRepository, session: AsyncMock
     ) -> None:
-        # An empty IN () can only return nothing, so the round trip is skipped
-        # rather than sent.
+        # An empty IN () can only return nothing, so no round trip is sent.
         assert await repository.list_active_for_vehicles([]) == []
 
         session.execute.assert_not_awaited()

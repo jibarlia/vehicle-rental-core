@@ -6,8 +6,7 @@ from pydantic import BaseModel, ConfigDict
 
 class RentalCreate(BaseModel):
     vehicle_id: UUID
-    # The customer must already exist: their name is snapshotted onto the
-    # rental at start, so there is nowhere to put an unregistered one.
+    # Must already exist: the name is snapshotted from their record.
     customer_id: UUID
     start_at: datetime | None = None
 
@@ -19,10 +18,8 @@ class RentalComplete(BaseModel):
 class ActiveRentalRead(BaseModel):
     """An open rental, as it appears inside a vehicle's status.
 
-    A deliberate subset of :class:`RentalRead`: ``end_at`` is null by
-    definition for an active rental, and the audit timestamps are noise on a
-    status board. ``vehicle_id`` is dropped too — it is the row this is
-    nested under. The full record is one ``GET /rentals/{id}`` away.
+    A deliberate subset of :class:`RentalRead`; the full record is one
+    ``GET /rentals/{id}`` away.
     """
 
     model_config = ConfigDict(from_attributes=True)

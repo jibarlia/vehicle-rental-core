@@ -29,8 +29,7 @@ def start(
 ) -> None:
     """Register a rental, marking the vehicle in use.
 
-    The customer's name is snapshotted onto the rental server-side, so this
-    only needs their id.
+    The customer's name is snapshotted server-side, so only their id is needed.
     """
     payload: dict[str, object] = {
         "vehicle_id": str(vehicle_id),
@@ -52,11 +51,7 @@ def end(
     base_url: BaseUrl = None,
     as_json: AsJson = False,
 ) -> None:
-    """End a rental and release the vehicle.
-
-    Freeing the vehicle is the API's job and shares the rental's transaction —
-    there is deliberately no second call here to set the status.
-    """
+    """End a rental and release the vehicle."""
     payload: dict[str, object] = {}
     if end_at is not None:
         payload["end_at"] = end_at.isoformat()

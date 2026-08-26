@@ -113,8 +113,7 @@ class TestStartRental:
         rental_repository: AsyncMock,
         customer_repository: AsyncMock,
     ) -> None:
-        # The name is copied, not referenced: this is what survives the
-        # customer being renamed or deleted later.
+        # Copied, not referenced, so it survives a rename or delete.
         customer = _customer(name="Grace Hopper")
         customer_repository.get.return_value = customer
         vehicle_repository.get.return_value = _vehicle()

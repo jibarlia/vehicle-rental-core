@@ -6,23 +6,16 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from vehicle_rental_core.domain.enums import Sex
 from vehicle_rental_core.domain.errors import InvalidDateOfBirthError
 
-# No verified human has reached this age. A fixed ceiling, unlike the floor,
-# which moves with the calendar.
+# No verified human has reached this age.
 MAX_AGE_YEARS = 120
 
 
 class Customer(BaseModel):
-    """Someone who rents vehicles, independent of how they are stored or served.
-
-    ``validate_assignment`` means every rule below runs on construction *and* on
-    every later assignment, so there is no way to write a field and skip its
-    validation.
-    """
+    """Someone who rents vehicles, independent of how they are stored."""
 
     model_config = ConfigDict(validate_assignment=True)
 
-    # Length mirrors the column in ``CustomerModel``, so a value the database
-    # would truncate is rejected before it ever reaches SQL.
+    # Mirrors the column in CustomerModel, so SQL never has to truncate.
     name: str = Field(min_length=1, max_length=255)
     email: EmailStr
     date_of_birth: date
@@ -36,10 +29,8 @@ class Customer(BaseModel):
     def _plausible_date_of_birth(cls, date_of_birth: date) -> date:
         """Reject a birth date no living customer could carry.
 
-        The floor moves with the calendar rather than being a constant to bump.
-        Because it only ever advances, a row that was valid when written can
-        later fall outside the range — which is why this validates input, and
-        why nothing re-validates stored rows on read.
+        Validates input only: the floor advances with the calendar, so a stored
+        row can later fall outside the range.
         """
         today = datetime.now(UTC).date()
         if date_of_birth > today:
@@ -47,8 +38,7 @@ class Customer(BaseModel):
                 f"Date of birth {date_of_birth} is in the future."
             )
 
-        # Compared by year rather than by building a floor date: constructing
-        # date(today.year - 120, 2, 29) raises on a leap day.
+        # By year, not a floor date: date(year - 120, 2, 29) raises on a leap day.
         if today.year - date_of_birth.year > MAX_AGE_YEARS:
             raise InvalidDateOfBirthError(
                 f"Date of birth {date_of_birth} implies an age over {MAX_AGE_YEARS}."
@@ -57,11 +47,7 @@ class Customer(BaseModel):
 
     @property
     def age(self) -> int:
-        """Whole years lived, derived rather than stored.
-
-        An ``age`` column would be wrong the day after it was written; this is
-        correct on every read without a job to refresh it.
-        """
+        """Whole years lived, derived so it cannot go stale."""
         today = datetime.now(UTC).date()
         born = self.date_of_birth
         had_birthday_this_year = (today.month, today.day) >= (born.month, born.day)

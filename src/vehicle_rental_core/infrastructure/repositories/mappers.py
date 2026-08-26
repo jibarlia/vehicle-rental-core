@@ -1,8 +1,5 @@
-"""Translation between ORM models and domain entities.
-
-Keeping this in one place is what lets the domain stay free of SQLAlchemy and
-the application layer never see a ``*Model``.
-"""
+"""Translation between ORM models and domain entities, kept in one place so
+the domain stays free of SQLAlchemy."""
 
 from vehicle_rental_core.domain.customer import Customer
 from vehicle_rental_core.domain.rental import Rental
@@ -42,8 +39,7 @@ def vehicle_to_model(vehicle: Vehicle) -> VehicleModel:
 def apply_vehicle(model: VehicleModel, vehicle: Vehicle) -> None:
     """Copy mutable domain state onto a loaded model.
 
-    ``id`` and ``version`` are excluded: identity is fixed, and the version is
-    owned by SQLAlchemy's optimistic-locking machinery.
+    ``id`` and ``version`` are excluded; SQLAlchemy owns the version.
     """
     model.vehicle_type = vehicle.vehicle_type
     model.registration_number = vehicle.registration_number

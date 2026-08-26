@@ -67,9 +67,7 @@ class RentalService:
         rental = Rental(
             vehicle_id=vehicle_id,
             customer_id=customer.id,
-            # Frozen here, on purpose. The rental records who rented, as they
-            # were: a later rename does not rewrite history, and a later delete
-            # cannot erase it.
+            # Frozen on purpose: a later rename or delete cannot rewrite it.
             customer_name=customer.name,
             start_at=start_at or self._clock(),
         )
@@ -82,8 +80,7 @@ class RentalService:
             await self._session.commit()
         except IntegrityError as exc:
             await self._session.rollback()
-            # The partial unique index is the authority: another transaction
-            # opened a rental for this vehicle between our check and our insert.
+            # Another transaction opened a rental between check and insert.
             if _ACTIVE_RENTAL_INDEX in str(exc.orig):
                 raise VehicleHasActiveRentalError(
                     f"Vehicle {vehicle_id} already has an active rental."
@@ -99,8 +96,8 @@ class RentalService:
         rental.complete(end_at or self._clock())
         updated = await self._rental_repository.update(rental)
 
-        # Freeing the vehicle is part of ending a rental, so it shares the
-        # transaction — the fleet can never show a car as rented with no rental.
+        # Shares the transaction, so the fleet can never show a car as rented
+        # with no rental.
         vehicle = await self._vehicle_repository.get(rental.vehicle_id)
         if vehicle is not None and vehicle.status is VehicleStatus.IN_USE:
             vehicle.status = VehicleStatus.AVAILABLE

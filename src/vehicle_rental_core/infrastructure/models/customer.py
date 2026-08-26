@@ -17,9 +17,8 @@ if TYPE_CHECKING:
 class CustomerModel(TimestampMixin, Base):
     """``customers`` table.
 
-    Deleting a customer is a real DELETE, unlike retiring a vehicle: the FK on
-    ``rentals`` is ``ON DELETE SET NULL``, so the rentals survive with their
-    ``customer_name`` snapshot intact. The record goes, the history stays.
+    Deleting one is a real DELETE, unlike retiring a vehicle: the FK on
+    ``rentals`` is ``ON DELETE SET NULL``, so the history stays.
     """
 
     __tablename__ = "customers"
@@ -30,18 +29,14 @@ class CustomerModel(TimestampMixin, Base):
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    # 320 is the maximum length an address can have (64 local + @ + 255 domain).
-    # Unique because an email is what identifies a customer to a human.
+    # 320 = 64 local + @ + 255 domain, the maximum an address can have.
     email: Mapped[str] = mapped_column(
         String(320), nullable=False, unique=True, index=True
     )
 
-    # Stored instead of an age, which would be wrong the day after it was
-    # written. ``Customer.age`` derives the number on read.
+    # Stored instead of an age, which would go stale; Customer.age derives it.
     date_of_birth: Mapped[date] = mapped_column(Date(), nullable=False)
 
-    # VARCHAR with create_constraint=False, matching VehicleModel: the CHECK is
-    # declared in __table_args__ so Alembic can see it.
     sex: Mapped[Sex] = mapped_column(
         Enum(
             Sex,
@@ -55,9 +50,8 @@ class CustomerModel(TimestampMixin, Base):
         default=Sex.UNSPECIFIED,
     )
 
-    # passive_deletes lets the database apply the ON DELETE SET NULL. Without
-    # it SQLAlchemy loads every rental and nulls the FK itself, which both
-    # diverges from the DDL and gets expensive for a long-standing customer.
+    # passive_deletes lets the database apply ON DELETE SET NULL instead of
+    # SQLAlchemy loading every rental to null the FK itself.
     rentals: Mapped[list[RentalModel]] = relationship(
         back_populates="customer", passive_deletes=True
     )

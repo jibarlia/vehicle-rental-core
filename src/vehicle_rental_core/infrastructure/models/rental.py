@@ -24,8 +24,7 @@ class RentalModel(TimestampMixin, Base):
             "end_at IS NULL OR end_at >= start_at",
             name="end_at_after_start_at",
         ),
-        # At most one open rental per vehicle. Enforced by the database, so two
-        # concurrent transactions cannot both win the race.
+        # At most one open rental per vehicle, enforced against concurrency.
         Index(
             "uq_rentals_one_active_per_vehicle",
             "vehicle_id",
@@ -40,23 +39,19 @@ class RentalModel(TimestampMixin, Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
 
-    # CASCADE: a rental is meaningless without the vehicle it refers to, so
-    # hard-deleting a vehicle takes its rentals with it. Retiring a vehicle
-    # while keeping the record is retiring, not deleting.
+    # CASCADE: a rental is meaningless without its vehicle.
     vehicle_id: Mapped[UUID] = mapped_column(
         ForeignKey("vehicles.id", ondelete="CASCADE"), nullable=False
     )
 
-    # SET NULL, deliberately unlike vehicle_id's CASCADE above: a rental
-    # without its vehicle is meaningless, but a rental without its customer is
+    # SET NULL, unlike vehicle_id above: a rental without its customer is
     # still valid history.
     customer_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("customers.id", ondelete="SET NULL"), nullable=True
     )
 
-    # A snapshot taken when the rental started, not denormalisation to tidy up
-    # later. It is what survives the customer being deleted, and it deliberately
-    # does not follow a rename — the rental records who rented, as they were.
+    # Snapshot taken at start: survives customer deletion and does not follow
+    # a rename, because the rental records who rented, as they were.
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
 
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

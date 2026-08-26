@@ -10,7 +10,7 @@ from vehicle_rental_core.domain.enums import VehicleStatus, VehicleType
 
 app = typer.Typer(help="Vehicle operations.", no_args_is_help=True)
 
-# The columns worth seeing in a fleet listing; the full record is a --json away.
+# The full record is a --json away.
 _LIST_COLUMNS = ["id", "registration_number", "model", "year", "status"]
 
 BaseUrl = Annotated[
@@ -60,8 +60,7 @@ def update(
 ) -> None:
     """Change a vehicle's details or status.
 
-    Only the flags actually passed are sent, so an omitted field stays omitted
-    rather than arriving as a null the API would have to guess about.
+    Only the flags actually passed are sent.
     """
     changes: dict[str, object] = {}
     if model is not None:
@@ -90,11 +89,7 @@ def list_vehicles(
     base_url: BaseUrl = None,
     as_json: AsJson = False,
 ) -> None:
-    """List the fleet, optionally filtered by status.
-
-    Retired vehicles are hidden unless asked for by name (``--status retired``),
-    which is the API's rule, not a second one invented here.
-    """
+    """List the fleet, optionally filtered by status."""
     params: dict[str, object] = {"offset": offset, "limit": limit}
     if status is not None:
         params["status"] = status.value

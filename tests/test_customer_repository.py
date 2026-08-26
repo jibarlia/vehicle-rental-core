@@ -46,8 +46,7 @@ class TestDelete:
     async def test_should_issue_one_statement_without_loading_the_row(
         self, repository: CustomerRepository, session: AsyncMock
     ) -> None:
-        # No SELECT first: the service establishes existence when it wants a
-        # 404, so the repository just deletes.
+        # No SELECT first: the service establishes existence for the 404.
         await repository.delete(uuid4())
 
         session.execute.assert_awaited_once()

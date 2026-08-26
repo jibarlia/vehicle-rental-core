@@ -15,13 +15,7 @@ from vehicle_rental_core.infrastructure.repositories.mappers import (
 
 
 class VehicleRepository:
-    """Data access for ``vehicles``.
-
-    Nothing here hides retired vehicles. Retiring keeps the record readable —
-    that is the whole point of retiring rather than deleting — so a reader that
-    dropped those rows would be undoing the distinction. Callers that want a
-    narrower set say so with ``status``.
-    """
+    """Data access for ``vehicles``. Nothing here hides retired ones."""
 
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
@@ -54,13 +48,7 @@ class VehicleRepository:
         offset: int = 0,
         limit: int = 20,
     ) -> list[Vehicle]:
-        """Vehicles, newest first — every one of them unless ``status`` narrows it.
-
-        Retired vehicles are included. A collection that quietly withheld part
-        of the collection would leave a caller no way to ask for the whole
-        thing, and no way to discover that anything was missing; narrowing is
-        the caller's business, spelled out with ``status``.
-        """
+        """Vehicles, newest first — all of them unless ``status`` narrows it."""
         statement = select(VehicleModel)
         if status is not None:
             statement = statement.where(VehicleModel.status == status)
@@ -77,13 +65,7 @@ class VehicleRepository:
     async def count_by_status(self) -> dict[VehicleStatus, int]:
         """How many vehicles sit in each status, across the whole table.
 
-        Unlike :meth:`list` this hides nothing — retired vehicles are counted
-        under their own status, because a tally that quietly omitted them would
-        not add up to the fleet.
-
-        Only statuses actually present come back; filling in the zeroes is the
-        caller's job, since what counts as a complete set is a presentation
-        question rather than a storage one.
+        Only statuses actually present come back; zero-filling is the caller's.
         """
         statement = select(VehicleModel.status, func.count()).group_by(
             VehicleModel.status
@@ -97,8 +79,7 @@ class VehicleRepository:
         if model is None:
             raise ConcurrentUpdateError(f"Vehicle {vehicle.id} no longer exists.")
 
-        # The caller read version N; if the row has moved on, their decision was
-        # made against state that is no longer true.
+        # The caller read version N; the row has since moved on.
         if model.version != vehicle.version:
             raise ConcurrentUpdateError(
                 f"Vehicle {vehicle.id} was modified by another transaction."

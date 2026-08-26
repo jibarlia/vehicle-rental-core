@@ -48,8 +48,7 @@ async def get_customer(
 async def update_customer(
     customer_id: UUID, payload: CustomerUpdate, customer_service: CustomerServiceDep
 ) -> CustomerRead:
-    # Built from what the client actually sent, so an omitted field stays
-    # omitted all the way down instead of arriving as an indistinguishable None.
+    # exclude_unset keeps an omitted field distinct from one sent as null.
     changes = CustomerChanges(**payload.model_dump(exclude_unset=True))
     customer = await customer_service.update(customer_id, changes)
     return CustomerRead.model_validate(customer)
@@ -61,8 +60,7 @@ async def delete_customer(
 ) -> None:
     """Delete a customer, keeping their rentals on record.
 
-    Unlike a vehicle, a customer is genuinely deleted. Their rentals survive:
-    the FK is ``ON DELETE SET NULL`` and ``customer_name`` was snapshotted when
-    each rental started, so the history stays readable without them.
+    Unlike a vehicle, a customer is genuinely deleted; the rentals survive via
+    ``ON DELETE SET NULL`` and their ``customer_name`` snapshot.
     """
     await customer_service.delete(customer_id)

@@ -85,8 +85,7 @@ class TestSeed:
     def test_should_not_open_more_rentals_than_there_are_vehicles(
         self, services: dict[str, AsyncMock]
     ) -> None:
-        # One active rental per vehicle is a database guarantee; asking for more
-        # rentals than vehicles must not try to violate it.
+        # One active rental per vehicle is a database guarantee.
         result = runner.invoke(
             app, ["seed", "--vehicles", "2", "--customers", "2", "--rentals", "10"]
         )
@@ -97,8 +96,7 @@ class TestSeed:
     def test_should_be_reproducible_for_a_given_seed(
         self, services: dict[str, AsyncMock]
     ) -> None:
-        # Reproducible needs the batch token pinned too: --seed alone fixes the
-        # names and dates, the token fixes the uniquely-indexed columns.
+        # --seed fixes names and dates; the token fixes the indexed columns.
         args = ["seed", "--vehicles", "4", "--customers", "4", "--seed", "7"]
         runner.invoke(app, [*args, "--token", "123"])
         first = [
@@ -116,8 +114,7 @@ class TestSeed:
     def test_should_not_repeat_a_plate_across_runs(
         self, services: dict[str, AsyncMock]
     ) -> None:
-        # The point of the batch token: running twice for a demo must not hit
-        # the unique index on registration_number.
+        # Running twice must not hit the unique index on registration_number.
         def plates() -> set[str]:
             return {
                 call.kwargs["registration_number"]
@@ -181,8 +178,7 @@ class TestSeed:
     def test_should_generate_plates_that_cannot_collide_within_a_run(
         self, services: dict[str, AsyncMock]
     ) -> None:
-        # The column has a unique index, so a random plate would eventually
-        # abort a large run.
+        # A unique index means a random plate would eventually abort a run.
         runner.invoke(app, ["seed", "--vehicles", "50", "--customers", "1"])
 
         plates = [
@@ -204,8 +200,7 @@ class TestSeed:
     def test_should_stop_cleanly_on_a_domain_error(
         self, services: dict[str, AsyncMock]
     ) -> None:
-        # Seeding a database that already holds these rows is a real outcome,
-        # and it should read as a message rather than a traceback.
+        # Should read as a message rather than a traceback.
         services["vehicles"].create.side_effect = RegistrationNumberAlreadyExistsError(
             "SD-00000 is taken"
         )
@@ -258,8 +253,7 @@ class TestRunToken:
 
 class TestLazyFakerImport:
     def test_should_import_faker_only_when_seeding_runs(self) -> None:
-        # A top-level import would break `vrc --help` on an install without
-        # dev dependencies, since main.py imports this module to register it.
+        # A top-level import would break `vrc --help` without dev deps.
         source = seed_module.__file__ or ""
         assert source
         with open(source) as handle:

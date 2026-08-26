@@ -156,8 +156,7 @@ class TestUpdateCustomer:
         service: CustomerService,
         customer_repository: AsyncMock,
     ) -> None:
-        # Re-checking an unchanged address would find the customer's own row
-        # and reject their own update.
+        # An unchanged address would match their own row and reject the update.
         customer_repository.get.return_value = _customer()
         customer_repository.update.side_effect = lambda customer: customer
 

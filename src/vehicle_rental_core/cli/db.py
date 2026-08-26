@@ -15,9 +15,8 @@ _CHECKOUT_ROOT = Path(__file__).resolve().parents[3]
 def _project_root() -> Path:
     """Locate the directory holding alembic.ini and migrations/.
 
-    Prefers the current working directory so an installed package (Docker,
-    where the code lives in site-packages) still finds the migrations copied
-    alongside it, and falls back to the source checkout layout.
+    Prefers the cwd so an installed package finds migrations copied alongside
+    it, falling back to the source checkout layout.
     """
     cwd = Path.cwd()
     if (cwd / "alembic.ini").is_file():
@@ -26,11 +25,8 @@ def _project_root() -> Path:
 
 
 def _alembic_config() -> Config:
-    """Alembic config with the URL taken from settings, not alembic.ini.
-
-    Keeps one source of truth for the database URL so the CLI, the API and the
-    migrations can never drift onto different databases.
-    """
+    """Alembic config with the URL from settings, so the CLI, API and
+    migrations cannot drift onto different databases."""
     root = _project_root()
     config = Config(str(root / "alembic.ini"))
     config.set_main_option("script_location", str(root / "migrations"))
@@ -44,9 +40,8 @@ def upgrade(revision: str = typer.Argument("head")) -> None:
     command.upgrade(_alembic_config(), revision)
 
 
-# ignore_unknown_options so a leading-dash revision reaches us as an argument.
-# Alembic's own syntax for "one step back" is -1, which Click would otherwise
-# reject as an unknown option before the command ever runs.
+# ignore_unknown_options so Alembic's "-1" arrives as an argument rather than
+# being rejected by Click as an unknown option.
 @app.command(context_settings={"ignore_unknown_options": True})
 def downgrade(revision: str = typer.Argument("-1")) -> None:
     """Revert migrations down to REVISION (default: one step back)."""

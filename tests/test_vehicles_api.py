@@ -190,8 +190,7 @@ class TestUpdateVehicle:
     async def test_should_forward_only_the_fields_that_were_sent(
         self, client: AsyncClient, vehicle_service: AsyncMock
     ) -> None:
-        # An omitted field must stay omitted all the way down, so the entity is
-        # never handed a None that looks like a deliberate change.
+        # An omitted field must never arrive as a None that looks deliberate.
         vehicle_service.update.return_value = _vehicle(year=2024)
 
         await client.patch(f"/vehicles/{uuid4()}", json={"year": 2024})
@@ -203,9 +202,7 @@ class TestUpdateVehicle:
     async def test_should_return_422_when_the_entity_rejects_a_field(
         self, client: AsyncClient, vehicle_service: AsyncMock
     ) -> None:
-        # A blank model is rejected by the entity's own constraint, so it
-        # arrives as pydantic's error rather than a DomainError. Without a
-        # handler for it that would be a 500.
+        # The entity's constraint raises pydantic's error, not a DomainError.
         vehicle_service.update.side_effect = lambda *_, **__: _vehicle(model="")
 
         response = await client.patch(f"/vehicles/{uuid4()}", json={"model": ""})
@@ -230,8 +227,7 @@ class TestFleetStatus:
 
         assert response.status_code == 200
         body = response.json()
-        # A client renders a fixed set of tiles, so a status with no vehicles
-        # must report 0 rather than go missing.
+        # A status with no vehicles must report 0 rather than go missing.
         assert body["counts"] == {
             "available": 8,
             "in_use": 3,
@@ -243,8 +239,7 @@ class TestFleetStatus:
     async def test_should_carry_a_retired_vehicle_in_items(
         self, client: AsyncClient, vehicle_service: AsyncMock
     ) -> None:
-        # The status view reports on the fleet, and a report that silently drops
-        # part of its population is a report that misleads.
+        # A report that drops part of its population misleads.
         retired = _vehicle(status=VehicleStatus.RETIRED, retired_at=NOW)
         vehicle_service.fleet_status.return_value = self._fleet(
             VehicleStatusEntry(vehicle=retired), retired=1
@@ -254,8 +249,7 @@ class TestFleetStatus:
 
         body = response.json()
         assert [item["status"] for item in body["items"]] == ["retired"]
-        # And the total counts it, so it does not promise fewer rows than
-        # paging delivers.
+        # Counted in the total, so it matches what paging delivers.
         assert body["total"] == 1
 
     async def test_should_nest_the_active_rental_under_a_vehicle_in_use(
@@ -297,8 +291,7 @@ class TestFleetStatus:
     async def test_should_omit_the_fields_a_status_board_does_not_display(
         self, client: AsyncClient, vehicle_service: AsyncMock
     ) -> None:
-        # Pinned deliberately: these ride along on every row of every page and
-        # are shown on none, so the row must not quietly re-fatten.
+        # These ride on every row and show on none; the row must not re-fatten.
         vehicle_service.fleet_status.return_value = self._fleet(
             VehicleStatusEntry(vehicle=_vehicle()), available=1
         )
@@ -337,9 +330,7 @@ class TestFleetStatus:
     async def test_should_route_status_to_the_fleet_handler_not_get_vehicle(
         self, client: AsyncClient, vehicle_service: AsyncMock
     ) -> None:
-        # FastAPI matches in declaration order. Were this route declared after
-        # GET /{vehicle_id}, "status" would be read as a vehicle id and fail
-        # with a 422 that points nowhere near the real cause.
+        # Declared after GET /{vehicle_id}, "status" would parse as an id.
         vehicle_service.fleet_status.return_value = self._fleet()
 
         response = await client.get("/vehicles/status")

@@ -50,12 +50,7 @@ async def _ping_database(settings: Settings) -> None:
 
 @app.command()
 def healthcheck() -> None:
-    """Verify the configured database is reachable.
-
-    Typer commands stay synchronous and cross into async with a single
-    ``asyncio.run`` at the boundary, so there is exactly one event loop per
-    command invocation.
-    """
+    """Verify the configured database is reachable."""
     settings = get_settings()
     configure_logging(settings)
     try:

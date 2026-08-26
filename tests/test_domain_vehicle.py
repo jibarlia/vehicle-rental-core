@@ -57,8 +57,7 @@ class TestRentability:
 
 class TestRetiring:
     def test_should_set_status_and_timestamp_together(self) -> None:
-        # The database check constraint requires these two to agree, so the
-        # entity must never move one without the other.
+        # A check constraint requires these two to agree.
         vehicle = _retired()
 
         assert vehicle.status is VehicleStatus.RETIRED
@@ -150,8 +149,7 @@ class TestYearValidation:
 
     @staticmethod
     def _next_year() -> int:
-        # Derived the same way the entity derives it, so the test stays correct
-        # as the calendar moves without freezing the clock.
+        # Derived as the entity derives it, so the calendar cannot break this.
         return datetime.now(UTC).year + 1
 
     def test_should_accept_the_current_model_year(self) -> None:
@@ -166,8 +164,7 @@ class TestYearValidation:
             _vehicle(year=self._next_year() + 1)
 
     def test_ceiling_should_track_the_calendar(self) -> None:
-        # The boundary is not a constant: it sits exactly one year ahead of now,
-        # so nothing needs bumping as years pass.
+        # The boundary sits one year ahead of now, so nothing needs bumping.
         _vehicle(year=self._next_year())
 
         with pytest.raises(InvalidVehicleYearError):
@@ -202,8 +199,7 @@ class TestFieldAssignment:
         with pytest.raises(InvalidVehicleYearError):
             vehicle.year = 99999
 
-        # The rule runs before the write, so a rejected correction leaves the
-        # entity on its last good value.
+        # The rule runs before the write, so the entity keeps its last value.
         assert vehicle.year == 2022
 
     def test_should_reject_a_blank_model(self) -> None:
@@ -238,8 +234,7 @@ class TestApplyingCorrections:
             vehicle.apply({"year": 99999})
 
     def test_should_refuse_a_field_that_is_not_a_correction(self) -> None:
-        # Status and identity have their own rules; reaching them through a
-        # correction would skip every one of them.
+        # Reaching status or identity this way would skip their own rules.
         vehicle = _vehicle()
 
         with pytest.raises(ValueError, match="not a correctable field"):

@@ -44,9 +44,7 @@ async def list_vehicles(
     return [VehicleRead.model_validate(vehicle) for vehicle in vehicles]
 
 
-# Declared above GET /{vehicle_id} on purpose: FastAPI matches routes in
-# declaration order, so below it the literal "status" would be swallowed by the
-# UUID path param and answered with a puzzling 422. Keep this handler first.
+# Must stay above GET /{vehicle_id}: FastAPI matches in declaration order.
 @router.get("/status", response_model=FleetStatusRead)
 async def get_fleet_status(
     vehicle_service: VehicleServiceDep,
@@ -56,10 +54,8 @@ async def get_fleet_status(
 ) -> FleetStatusRead:
     """The fleet at a glance: counts over every vehicle, plus one page of them.
 
-    The counts describe the whole fleet whatever the filter and page are, so
-    "how many are available?" is answerable without walking the table. A vehicle
-    that is out carries the rental explaining it, which is what saves a caller
-    from asking each one in turn.
+    Counts describe the whole fleet whatever the filter; a vehicle that is out
+    carries the rental explaining it.
     """
     fleet = await vehicle_service.fleet_status(
         status=status_filter, offset=offset, limit=limit
@@ -68,8 +64,6 @@ async def get_fleet_status(
         counts=dict(fleet.counts),
         total=fleet.total,
         items=[
-            # Built field by field rather than validated off the entry: the row
-            # is a chosen subset, and current_rental comes from a second object.
             VehicleStatusRead(
                 id=entry.vehicle.id,
                 registration_number=entry.vehicle.registration_number,
@@ -98,8 +92,7 @@ async def get_vehicle(
 async def update_vehicle(
     vehicle_id: UUID, payload: VehicleUpdate, vehicle_service: VehicleServiceDep
 ) -> VehicleRead:
-    # Built from what the client actually sent, so an omitted field stays
-    # omitted all the way down instead of arriving as an indistinguishable None.
+    # exclude_unset keeps an omitted field distinct from one sent as null.
     changes = VehicleChanges(**payload.model_dump(exclude_unset=True))
     vehicle = await vehicle_service.update(vehicle_id, changes)
     return VehicleRead.model_validate(vehicle)
@@ -109,9 +102,9 @@ async def update_vehicle(
 async def retire_vehicle(vehicle_id: UUID, service: VehicleServiceDep) -> VehicleRead:
     """Retire a vehicle from the fleet, keeping it and its rentals on record.
 
-    The only way to remove a vehicle from service — there is deliberately no
-    endpoint that deletes one, because deleting cascades to its rentals.
-    Rejected with 409 while a rental is active.
+    The only way to remove one from service; there is deliberately no DELETE,
+    because deleting cascades to the rentals. Returns 409 while a rental is
+    active.
     """
     return VehicleRead.model_validate(await service.retire(vehicle_id))
 
@@ -124,8 +117,7 @@ async def list_vehicle_rentals(
     offset: Annotated[int, Query(ge=0)] = 0,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> list[RentalRead]:
-    # Resolve the vehicle first so a deleted or unknown id is a 404 rather than
-    # an empty list that looks like "no rentals".
+    # Resolve first so an unknown id is a 404, not an empty list.
     await vehicles.get(vehicle_id)
     history = await rentals.list_for_vehicle(vehicle_id, offset=offset, limit=limit)
     return [RentalRead.model_validate(rental) for rental in history]

@@ -47,8 +47,7 @@ def app(settings: Settings, session: AsyncMock) -> Iterator[FastAPI]:
 
 @pytest.fixture
 async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    # ASGITransport drives the app in-process: no socket, no lifespan, so the
-    # engine is never built and no database is contacted.
+    # In-process: no socket, no lifespan, so no database is contacted.
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
@@ -83,8 +82,7 @@ def stub_api(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[httpx.Reques
             with httpx.Client(transport=httpx.MockTransport(handler)) as client:
                 return client.request(method, url, **kwargs)
 
-        # Patched on httpx itself: _client does `import httpx` and calls
-        # httpx.request, so the module attribute is the seam.
+        # _client calls httpx.request, so the module attribute is the seam.
         monkeypatch.setattr(httpx, "request", fake_request)
         return seen
 

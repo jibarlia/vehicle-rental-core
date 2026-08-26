@@ -33,8 +33,7 @@ class TestVehicleMapping:
         )
 
         model = vehicle_to_model(original)
-        # A fresh model has no server-assigned version yet; supply it as the
-        # database would after a flush.
+        # A fresh model has no server-assigned version; supply it as the DB would.
         model.version = original.version
         restored = vehicle_to_domain(model)
 
@@ -56,8 +55,7 @@ class TestVehicleMapping:
             status=VehicleStatus.AVAILABLE,
             retired_at=None,
         )
-        # The column default is applied at flush, so an unflushed model has no
-        # version yet; supply it as the database would.
+        # The default applies at flush, so supply it as the database would.
         model.version = 1
         vehicle = vehicle_to_domain(model)
         vehicle.status = VehicleStatus.MAINTENANCE
@@ -135,8 +133,7 @@ class TestRentalMapping:
         assert model.created_at is None
 
     def test_should_keep_the_name_when_the_customer_id_is_gone(self) -> None:
-        # The state a deleted customer leaves behind: SET NULL wiped the id,
-        # the snapshot is all that remains.
+        # What a deleted customer leaves: SET NULL wiped the id, snapshot stays.
         orphaned = Rental(
             vehicle_id=uuid4(),
             customer_id=None,

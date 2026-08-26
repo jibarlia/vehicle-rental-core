@@ -53,8 +53,7 @@ class TestCompletingARental:
         with pytest.raises(InvalidRentalPeriodError):
             rental.complete(datetime(2025, 1, 1, tzinfo=UTC))
 
-        # Validation runs before the write, so a rejected end leaves the rental
-        # open rather than holding an impossible date.
+        # Validation runs before the write, so the rental stays open.
         assert rental.end_at is None
         assert rental.is_active is True
 

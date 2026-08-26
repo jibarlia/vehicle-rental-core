@@ -17,13 +17,8 @@ if TYPE_CHECKING:
 class VehicleModel(TimestampMixin, Base):
     """``vehicles`` table.
 
-    Deliberately named ``vehicles``, not ``cars``: ``vehicle_type`` carries the
-    distinction, so motorcycles, vans and trucks join without a rename.
-
-    Both enum columns are VARCHAR with ``create_constraint=False``; their CHECK
-    constraints are declared in ``__table_args__`` so Alembic can see them.
-    ``values_callable`` stores the lowercase enum values ("car"), not the member
-    names ("CAR").
+    Enum columns are VARCHAR with ``create_constraint=False`` so their CHECKs
+    can be declared in ``__table_args__`` where Alembic sees them.
     """
 
     __tablename__ = "vehicles"
@@ -33,9 +28,7 @@ class VehicleModel(TimestampMixin, Base):
         Index("ix_vehicles_status", "status"),
         enum_check("vehicle_type", VehicleType),
         enum_check("status", VehicleStatus),
-        # A vehicle is retired exactly when it carries a retirement timestamp.
-        # Without this the two could drift and every query would have to guess
-        # which one is authoritative.
+        # Keeps status and retired_at from ever drifting apart.
         CheckConstraint(
             "(status = 'retired') = (retired_at IS NOT NULL)",
             name="retired_status_matches_timestamp",
@@ -57,9 +50,7 @@ class VehicleModel(TimestampMixin, Base):
         default=VehicleType.CAR,
     )
 
-    # Unique across the whole table, retired rows included: a retired vehicle
-    # keeps its plate forever, so the record of who drove which plate stays
-    # unambiguous. Only a hard DELETE frees a registration number for reuse.
+    # Unique across retired rows too, so a plate is never ambiguous.
     registration_number: Mapped[str] = mapped_column(
         String(32), nullable=False, unique=True, index=True
     )
@@ -79,8 +70,6 @@ class VehicleModel(TimestampMixin, Base):
         default=VehicleStatus.AVAILABLE,
     )
 
-    # Retirement is a status, not a tombstone: the row and its rentals stay.
-    # This records when the vehicle left the fleet.
     retired_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, default=None
     )
@@ -91,6 +80,6 @@ class VehicleModel(TimestampMixin, Base):
         back_populates="vehicle", cascade="all, delete"
     )
 
-    # SQLAlchemy bumps and checks this column on every UPDATE; a mismatch means
-    # another transaction won and raises StaleDataError.
+    # SQLAlchemy bumps and checks this on every UPDATE; a mismatch raises
+    # StaleDataError.
     __mapper_args__ = {"version_id_col": version}

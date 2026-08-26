@@ -32,9 +32,8 @@ def _executed_sql(session: AsyncMock) -> str:
 class TestList:
     """What the listing does and does not filter.
 
-    Pinned because it was silent for a long time: the listing used to drop
-    retired vehicles with no parameter saying so, which left a caller unable to
-    ask for the whole collection and unable to tell that anything was missing.
+    Pinned because it was silent: the listing used to drop retired vehicles
+    with no parameter saying so.
     """
 
     async def test_should_not_filter_at_all_when_no_status_is_given(
@@ -44,15 +43,13 @@ class TestList:
 
         await repository.list()
 
-        # No predicate whatsoever -- in particular not the "status != retired"
-        # that used to be implied by an unfiltered call.
+        # In particular not the "status != retired" that used to be implied.
         assert "WHERE" not in _executed_sql(session)
 
     async def test_should_return_a_retired_vehicle_the_query_yields(
         self, repository: VehicleRepository, session: AsyncMock
     ) -> None:
-        # The SQL is only half the guarantee: nothing may drop the row on the
-        # way back out either.
+        # Nothing may drop the row on the way back out either.
         model = MagicMock()
         model.id = uuid4()
         model.vehicle_type = VehicleType.CAR
@@ -107,8 +104,7 @@ class TestCountByStatus:
     async def test_should_map_the_grouped_rows_to_a_dict(
         self, repository: VehicleRepository, session: AsyncMock
     ) -> None:
-        # MagicMock rather than the AsyncMock a child of `session` would
-        # default to: .all() is sync and must not return a coroutine.
+        # MagicMock, not AsyncMock: .all() is sync.
         result = MagicMock()
         result.all.return_value = [
             (VehicleStatus.AVAILABLE, 8),
@@ -123,8 +119,7 @@ class TestCountByStatus:
     async def test_should_return_nothing_for_an_empty_table(
         self, repository: VehicleRepository, session: AsyncMock
     ) -> None:
-        # Absent statuses are absent, not zero — filling them in belongs to the
-        # caller, who knows what a complete set looks like.
+        # Absent statuses are absent, not zero; the caller fills them in.
         result = MagicMock()
         result.all.return_value = []
         session.execute.return_value = result

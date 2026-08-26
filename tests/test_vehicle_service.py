@@ -294,8 +294,7 @@ class TestFleetStatus:
     async def test_should_report_zero_for_a_status_the_repository_omits(
         self, service: VehicleService, vehicle_repository: AsyncMock
     ) -> None:
-        # The GROUP BY returns only statuses that exist. A client rendering a
-        # fixed set of tiles needs the gaps filled, not left missing.
+        # The GROUP BY returns only statuses that exist; gaps must be filled.
         vehicle_repository.list.return_value = []
         vehicle_repository.count_by_status.return_value = {
             VehicleStatus.AVAILABLE: 8,
@@ -315,8 +314,7 @@ class TestFleetStatus:
     async def test_should_count_the_whole_fleet_regardless_of_the_page(
         self, service: VehicleService, vehicle_repository: AsyncMock
     ) -> None:
-        # The counts answer "how is the fleet doing?", which is a different
-        # question from "what is on this screen?".
+        # Counts answer "how is the fleet doing", not "what is on this screen".
         vehicle_repository.list.return_value = [_vehicle()]
         vehicle_repository.count_by_status.return_value = {VehicleStatus.AVAILABLE: 500}
 
@@ -328,8 +326,7 @@ class TestFleetStatus:
     async def test_should_narrow_the_total_to_the_filtered_status(
         self, service: VehicleService, vehicle_repository: AsyncMock
     ) -> None:
-        # total is what a caller can page through, so under a filter it counts
-        # only that status -- while counts keeps describing the whole fleet.
+        # total is what a caller can page through; counts stays whole-fleet.
         vehicle_repository.list.return_value = []
         vehicle_repository.count_by_status.return_value = {
             VehicleStatus.AVAILABLE: 8,
@@ -355,8 +352,7 @@ class TestFleetStatus:
     async def test_should_count_retired_vehicles_in_the_unfiltered_total(
         self, service: VehicleService, vehicle_repository: AsyncMock
     ) -> None:
-        # The listing returns retired vehicles too, so a total that left them
-        # out would promise fewer rows than paging actually yields.
+        # The listing returns retired too, so the total must include them.
         vehicle_repository.list.return_value = []
         vehicle_repository.count_by_status.return_value = {
             VehicleStatus.AVAILABLE: 2,
@@ -395,8 +391,7 @@ class TestFleetStatus:
 
         await service.fleet_status()
 
-        # An available vehicle cannot have an open rental, so widening the
-        # lookup would read more rows for the same answer.
+        # An available vehicle cannot have an open rental.
         rental_repository.list_active_for_vehicles.assert_awaited_once_with([in_use.id])
 
     async def test_should_pair_each_vehicle_with_its_own_rental(
@@ -417,8 +412,7 @@ class TestFleetStatus:
 
         fleet = await service.fleet_status()
 
-        # Rentals come back in whatever order the index yields, so they are
-        # matched by vehicle id rather than by position.
+        # Matched by vehicle id, since index order is not position order.
         assert [entry.current_rental.customer_name for entry in fleet.entries] == [  # type: ignore[union-attr]
             "Ada",
             "Bob",
@@ -445,8 +439,7 @@ class TestFleetStatus:
         vehicle_repository: AsyncMock,
         rental_repository: AsyncMock,
     ) -> None:
-        # A vehicle can read as in_use with its rental already closed by a
-        # concurrent transaction. The page should still render, not blow up.
+        # A concurrent transaction may have closed it; the page must still render.
         vehicle_repository.list.return_value = [_vehicle(status=VehicleStatus.IN_USE)]
         vehicle_repository.count_by_status.return_value = {}
         rental_repository.list_active_for_vehicles.return_value = []

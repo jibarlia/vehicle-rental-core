@@ -1,11 +1,4 @@
-"""HTTP plumbing for the CLI commands that drive the API.
-
-These commands are deliberately *clients*: they speak to a running service over
-HTTP exactly as curl or the Swagger page would, rather than reaching into the
-application layer. Everything about that boundary — where the API is, how a
-failure reads, how a result is printed — lives here so the command modules stay
-a list of endpoints.
-"""
+"""HTTP plumbing for the CLI commands that drive the API over the wire."""
 
 from datetime import datetime
 from typing import Any
@@ -20,16 +13,15 @@ from vehicle_rental_core.core.config import get_settings
 
 _console = Console()
 
-# Long enough for a cold start behind a migration, short enough that a wedged
-# server does not hang the terminal.
+# Long enough for a cold start, short enough not to hang the terminal.
 _TIMEOUT = 10.0
 
 
 def base_url(override: str | None = None) -> str:
     """Where to reach the API.
 
-    ``--base-url`` wins, then ``API_BASE_URL`` from settings. Never api_host:
-    that is the bind address (0.0.0.0), which is not dialable.
+    ``--base-url`` wins, then ``API_BASE_URL``. Never api_host: that is the
+    bind address, which is not dialable.
     """
     return (override or get_settings().api_base_url).rstrip("/")
 
@@ -42,12 +34,7 @@ def request(
     json: dict[str, Any] | None = None,
     params: dict[str, Any] | None = None,
 ) -> Any:
-    """Call the API, turning any failure into a readable message and exit 1.
-
-    Errors arrive in the envelope the API's exception handlers produce —
-    ``{"detail": ..., "error": ...}`` — so a missing vehicle prints the domain
-    error's own name and sentence rather than a status code or a traceback.
-    """
+    """Call the API, turning any failure into a readable message and exit 1."""
     url = f"{base_url(override)}{path}"
     try:
         response = httpx.request(

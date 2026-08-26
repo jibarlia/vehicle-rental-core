@@ -39,9 +39,6 @@ class CustomerService:
     ) -> Customer:
         await self._reject_taken_email(email)
 
-        # Constructing the entity validates it; there is no separate step to
-        # forget. EmailStr is a validation-time annotation, so a plain str is
-        # what it accepts and what it produces.
         customer = Customer(
             name=name,
             email=email,
@@ -53,8 +50,7 @@ class CustomerService:
             await self._session.commit()
         except IntegrityError as exc:
             await self._session.rollback()
-            # The unique index is the authority: another transaction claimed
-            # this address between our check above and our insert.
+            # Another transaction claimed the address between check and insert.
             self._reraise_duplicate_email(exc, email)
             raise
 
@@ -73,8 +69,8 @@ class CustomerService:
         customer = await self.get(customer_id)
 
         attributes = changes.attributes()
-        # Only when the address actually moves: re-checking an unchanged email
-        # would find the customer's own row and reject their own update.
+        # Only when the address moves: an unchanged email would match the
+        # customer's own row and reject their update.
         new_email = attributes.get("email")
         if new_email is not None and new_email != customer.email:
             await self._reject_taken_email(new_email)
@@ -95,17 +91,15 @@ class CustomerService:
     async def delete(self, customer_id: UUID) -> None:
         """Delete the customer, keeping their rentals as history.
 
-        The FK is ``ON DELETE SET NULL``, so the rentals survive with their
-        ``customer_name`` snapshot intact. This is a real delete, unlike
-        retiring a vehicle — the customer record genuinely goes away.
+        A real delete, unlike retiring a vehicle: the FK is ``ON DELETE SET
+        NULL`` and ``customer_name`` was snapshotted at start.
         """
         await self.get(customer_id)
         await self._customer_repository.delete(customer_id)
         await self._session.commit()
 
     async def _reject_taken_email(self, email: str) -> None:
-        """Check up front for a clean 409; the unique index is the real
-        guarantee under concurrency."""
+        """Up front for a clean 409; the unique index is the real guarantee."""
         existing = await self._customer_repository.get_by_email(email)
         if existing is not None:
             raise EmailAlreadyExistsError(f"Email {email!r} is already registered.")

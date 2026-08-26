@@ -31,10 +31,9 @@ class RentalRepository:
         return rental_to_domain(model) if model is not None else None
 
     async def get_active_rental_for_vehicle(self, vehicle_id: UUID) -> Rental | None:
-        """The vehicle's open rental — the one with no ``end_at`` — if any.
+        """The vehicle's open rental, if any.
 
-        At most one can exist: ``uq_rentals_one_active_per_vehicle`` guarantees
-        it, which is why this returns a single rental rather than a list.
+        Singular because ``uq_rentals_one_active_per_vehicle`` allows only one.
         """
         statement = select(RentalModel).where(
             RentalModel.vehicle_id == vehicle_id,
@@ -46,8 +45,7 @@ class RentalRepository:
     async def has_active_rental_for_vehicle(self, vehicle_id: UUID) -> bool:
         """Whether the vehicle is currently rented out.
 
-        Cheaper than :meth:`get_active_rental_for_vehicle` when only the answer
-        matters — it selects one id instead of building an entity.
+        Selects one id rather than building an entity.
         """
         statement = (
             select(RentalModel.id)
@@ -64,13 +62,9 @@ class RentalRepository:
     ) -> list[Rental]:
         """The open rentals of many vehicles, in one query.
 
-        The batch sibling of :meth:`get_active_rental_for_vehicle`, for callers
-        holding a page of vehicles: asking per vehicle would be an N+1. At most
-        one rental comes back per id, guaranteed by
-        ``uq_rentals_one_active_per_vehicle``, which also serves the lookup.
+        Batch sibling of :meth:`get_active_rental_for_vehicle`; asking per
+        vehicle would be an N+1.
         """
-        # An empty IN () is a valid query that can only return nothing, so the
-        # round trip is skipped rather than sent.
         if not vehicle_ids:
             return []
 
