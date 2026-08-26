@@ -1,3 +1,8 @@
+from vehicle_rental_core.schemas.customer import (
+    CustomerCreate,
+    CustomerRead,
+    CustomerUpdate,
+)
 from vehicle_rental_core.schemas.rental import (
     RentalComplete,
     RentalCreate,
@@ -10,6 +15,9 @@ from vehicle_rental_core.schemas.vehicle import (
 )
 
 __all__ = [
+    "CustomerCreate",
+    "CustomerRead",
+    "CustomerUpdate",
     "RentalComplete",
     "RentalCreate",
     "RentalRead",
