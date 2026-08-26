@@ -7,12 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from vehicle_rental_core.application.clock import Clock, utcnow
 from vehicle_rental_core.domain.enums import VehicleStatus
 from vehicle_rental_core.domain.errors import (
+    CustomerNotFoundError,
     RentalNotFoundError,
     VehicleHasActiveRentalError,
     VehicleNotFoundError,
     VehicleNotRentableError,
 )
 from vehicle_rental_core.domain.rental import Rental
+from vehicle_rental_core.infrastructure.repositories.customer_repository import (
+    CustomerRepository,
+)
 from vehicle_rental_core.infrastructure.repositories.rental_repository import (
     RentalRepository,
 )
@@ -31,18 +35,20 @@ class RentalService:
         session: AsyncSession,
         rental_repository: RentalRepository,
         vehicle_repository: VehicleRepository,
+        customer_repository: CustomerRepository,
         clock: Clock = utcnow,
     ) -> None:
         self._session = session
         self._rental_repository = rental_repository
         self._vehicle_repository = vehicle_repository
+        self._customer_repository = customer_repository
         self._clock = clock
 
     async def start(
         self,
         *,
         vehicle_id: UUID,
-        customer_name: str,
+        customer_id: UUID,
         start_at: datetime | None = None,
     ) -> Rental:
         vehicle = await self._vehicle_repository.get(vehicle_id)
@@ -54,9 +60,17 @@ class RentalService:
                 f"Vehicle {vehicle_id} is {vehicle.status}, not available."
             )
 
+        customer = await self._customer_repository.get(customer_id)
+        if customer is None:
+            raise CustomerNotFoundError(f"Customer {customer_id} not found.")
+
         rental = Rental(
             vehicle_id=vehicle_id,
-            customer_name=customer_name,
+            customer_id=customer.id,
+            # Frozen here, on purpose. The rental records who rented, as they
+            # were: a later rename does not rewrite history, and a later delete
+            # cannot erase it.
+            customer_name=customer.name,
             start_at=start_at or self._clock(),
         )
 
