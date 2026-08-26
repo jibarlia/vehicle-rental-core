@@ -8,6 +8,7 @@ from httpx import ASGITransport, AsyncClient
 
 from vehicle_rental_core.api.dependencies import get_vehicle_service
 from vehicle_rental_core.application.vehicle_service import VehicleService
+from vehicle_rental_core.application.views import FleetStatus, VehicleStatusEntry
 from vehicle_rental_core.domain.enums import VehicleStatus
 from vehicle_rental_core.domain.errors import (
     RegistrationNumberAlreadyExistsError,
@@ -15,6 +16,7 @@ from vehicle_rental_core.domain.errors import (
     VehicleNotFoundError,
     VehicleRetiredError,
 )
+from vehicle_rental_core.domain.rental import Rental
 from vehicle_rental_core.domain.vehicle import Vehicle
 
 NOW = datetime(2026, 6, 1, tzinfo=UTC)
@@ -209,3 +211,121 @@ class TestUpdateVehicle:
         response = await client.patch(f"/vehicles/{uuid4()}", json={"model": ""})
 
         assert response.status_code == 422
+
+
+class TestFleetStatus:
+    @staticmethod
+    def _fleet(*entries: VehicleStatusEntry, **counts: int) -> FleetStatus:
+        tally = {member: counts.get(member.value, 0) for member in VehicleStatus}
+        return FleetStatus(
+            counts=tally, total=sum(tally.values()), entries=list(entries)
+        )
+
+    async def test_should_return_counts_for_every_status_including_zeroes(
+        self, client: AsyncClient, vehicle_service: AsyncMock
+    ) -> None:
+        vehicle_service.fleet_status.return_value = self._fleet(available=8, in_use=3)
+
+        response = await client.get("/vehicles/status")
+
+        assert response.status_code == 200
+        body = response.json()
+        # A client renders a fixed set of tiles, so a status with no vehicles
+        # must report 0 rather than go missing.
+        assert body["counts"] == {
+            "available": 8,
+            "in_use": 3,
+            "maintenance": 0,
+            "retired": 0,
+        }
+        assert body["total"] == 11
+
+    async def test_should_nest_the_active_rental_under_a_vehicle_in_use(
+        self, client: AsyncClient, vehicle_service: AsyncMock
+    ) -> None:
+        vehicle = _vehicle(status=VehicleStatus.IN_USE)
+        rental = Rental(
+            vehicle_id=vehicle.id,
+            customer_id=uuid4(),
+            customer_name="Dana Levi",
+            start_at=NOW,
+        )
+        vehicle_service.fleet_status.return_value = self._fleet(
+            VehicleStatusEntry(vehicle=vehicle, current_rental=rental), in_use=1
+        )
+
+        response = await client.get("/vehicles/status")
+
+        item = response.json()["items"][0]
+        assert item["status"] == "in_use"
+        assert item["current_rental"] == {
+            "id": str(rental.id),
+            "customer_id": str(rental.customer_id),
+            "customer_name": "Dana Levi",
+            "start_at": "2026-06-01T00:00:00Z",
+        }
+
+    async def test_should_leave_current_rental_null_for_a_vehicle_not_in_use(
+        self, client: AsyncClient, vehicle_service: AsyncMock
+    ) -> None:
+        vehicle_service.fleet_status.return_value = self._fleet(
+            VehicleStatusEntry(vehicle=_vehicle()), available=1
+        )
+
+        response = await client.get("/vehicles/status")
+
+        assert response.json()["items"][0]["current_rental"] is None
+
+    async def test_should_omit_the_fields_a_status_board_does_not_display(
+        self, client: AsyncClient, vehicle_service: AsyncMock
+    ) -> None:
+        # Pinned deliberately: these ride along on every row of every page and
+        # are shown on none, so the row must not quietly re-fatten.
+        vehicle_service.fleet_status.return_value = self._fleet(
+            VehicleStatusEntry(vehicle=_vehicle()), available=1
+        )
+
+        response = await client.get("/vehicles/status")
+
+        item = response.json()["items"][0]
+        assert set(item) == {
+            "id",
+            "registration_number",
+            "model",
+            "year",
+            "status",
+            "current_rental",
+        }
+
+    async def test_should_pass_the_status_filter_through_to_the_service(
+        self, client: AsyncClient, vehicle_service: AsyncMock
+    ) -> None:
+        vehicle_service.fleet_status.return_value = self._fleet()
+
+        response = await client.get("/vehicles/status?status=maintenance&limit=5")
+
+        assert response.status_code == 200
+        kwargs = vehicle_service.fleet_status.await_args.kwargs
+        assert kwargs["status"] is VehicleStatus.MAINTENANCE
+        assert kwargs["limit"] == 5
+
+    async def test_should_reject_an_out_of_range_limit(
+        self, client: AsyncClient
+    ) -> None:
+        response = await client.get("/vehicles/status?limit=500")
+
+        assert response.status_code == 422
+
+    async def test_should_route_status_to_the_fleet_handler_not_get_vehicle(
+        self, client: AsyncClient, vehicle_service: AsyncMock
+    ) -> None:
+        # FastAPI matches in declaration order. Were this route declared after
+        # GET /{vehicle_id}, "status" would be read as a vehicle id and fail
+        # with a 422 that points nowhere near the real cause.
+        vehicle_service.fleet_status.return_value = self._fleet()
+
+        response = await client.get("/vehicles/status")
+
+        assert response.status_code == 200
+        vehicle_service.fleet_status.assert_awaited_once()
+        vehicle_service.get.assert_not_awaited()
