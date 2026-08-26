@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vehicle_rental_core.domain.enums import VehicleStatus
@@ -72,6 +72,23 @@ class VehicleRepository:
 
         models = (await self._session.execute(statement)).scalars().all()
         return [vehicle_to_domain(model) for model in models]
+
+    async def count_by_status(self) -> dict[VehicleStatus, int]:
+        """How many vehicles sit in each status, across the whole table.
+
+        Unlike :meth:`list` this hides nothing — retired vehicles are counted
+        under their own status, because a tally that quietly omitted them would
+        not add up to the fleet.
+
+        Only statuses actually present come back; filling in the zeroes is the
+        caller's job, since what counts as a complete set is a presentation
+        question rather than a storage one.
+        """
+        statement = select(VehicleModel.status, func.count()).group_by(
+            VehicleModel.status
+        )
+        rows = (await self._session.execute(statement)).all()
+        return {status: count for status, count in rows}
 
     async def update(self, vehicle: Vehicle) -> Vehicle:
         """Persist domain changes, rejecting writes based on stale state."""
