@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vehicle_rental_core.domain.enums import VehicleStatus
@@ -17,9 +17,10 @@ from vehicle_rental_core.infrastructure.repositories.mappers import (
 class VehicleRepository:
     """Data access for ``vehicles``.
 
-    Lookups by identity return retired vehicles — retiring a vehicle keeps its
-    record readable, which is the whole point of retiring rather than deleting.
-    Only :meth:`list` hides them, so the fleet listing shows working vehicles.
+    Nothing here hides retired vehicles. Retiring keeps the record readable —
+    that is the whole point of retiring rather than deleting — so a reader that
+    dropped those rows would be undoing the distinction. Callers that want a
+    narrower set say so with ``status``.
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -53,16 +54,16 @@ class VehicleRepository:
         offset: int = 0,
         limit: int = 20,
     ) -> list[Vehicle]:
-        """The working fleet.
+        """Vehicles, newest first — every one of them unless ``status`` narrows it.
 
-        Retired vehicles are excluded unless asked for by name — passing
-        ``status=RETIRED`` returns them, so there is one rule and no extra flag.
+        Retired vehicles are included. A collection that quietly withheld part
+        of the collection would leave a caller no way to ask for the whole
+        thing, and no way to discover that anything was missing; narrowing is
+        the caller's business, spelled out with ``status``.
         """
         statement = select(VehicleModel)
         if status is not None:
             statement = statement.where(VehicleModel.status == status)
-        else:
-            statement = statement.where(VehicleModel.status != VehicleStatus.RETIRED)
 
         statement = (
             statement.order_by(VehicleModel.created_at.desc())
@@ -72,6 +73,23 @@ class VehicleRepository:
 
         models = (await self._session.execute(statement)).scalars().all()
         return [vehicle_to_domain(model) for model in models]
+
+    async def count_by_status(self) -> dict[VehicleStatus, int]:
+        """How many vehicles sit in each status, across the whole table.
+
+        Unlike :meth:`list` this hides nothing — retired vehicles are counted
+        under their own status, because a tally that quietly omitted them would
+        not add up to the fleet.
+
+        Only statuses actually present come back; filling in the zeroes is the
+        caller's job, since what counts as a complete set is a presentation
+        question rather than a storage one.
+        """
+        statement = select(VehicleModel.status, func.count()).group_by(
+            VehicleModel.status
+        )
+        rows = (await self._session.execute(statement)).all()
+        return {status: count for status, count in rows}
 
     async def update(self, vehicle: Vehicle) -> Vehicle:
         """Persist domain changes, rejecting writes based on stale state."""

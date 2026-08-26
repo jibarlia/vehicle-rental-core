@@ -16,6 +16,23 @@ class RentalComplete(BaseModel):
     end_at: datetime | None = None
 
 
+class ActiveRentalRead(BaseModel):
+    """An open rental, as it appears inside a vehicle's status.
+
+    A deliberate subset of :class:`RentalRead`: ``end_at`` is null by
+    definition for an active rental, and the audit timestamps are noise on a
+    status board. ``vehicle_id`` is dropped too — it is the row this is
+    nested under. The full record is one ``GET /rentals/{id}`` away.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    customer_id: UUID | None
+    customer_name: str
+    start_at: datetime
+
+
 class RentalRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

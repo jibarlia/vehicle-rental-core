@@ -15,6 +15,7 @@ from vehicle_rental_core.domain.errors import (
     VehicleNotFoundError,
     VehicleRetiredError,
 )
+from vehicle_rental_core.domain.rental import Rental
 from vehicle_rental_core.domain.vehicle import Vehicle
 from vehicle_rental_core.infrastructure.repositories.rental_repository import (
     RentalRepository,
@@ -287,3 +288,182 @@ class TestYearValidation:
         )
 
         assert created.year == 2027
+
+
+class TestFleetStatus:
+    async def test_should_report_zero_for_a_status_the_repository_omits(
+        self, service: VehicleService, vehicle_repository: AsyncMock
+    ) -> None:
+        # The GROUP BY returns only statuses that exist. A client rendering a
+        # fixed set of tiles needs the gaps filled, not left missing.
+        vehicle_repository.list.return_value = []
+        vehicle_repository.count_by_status.return_value = {
+            VehicleStatus.AVAILABLE: 8,
+            VehicleStatus.IN_USE: 3,
+        }
+
+        fleet = await service.fleet_status()
+
+        assert fleet.counts == {
+            VehicleStatus.AVAILABLE: 8,
+            VehicleStatus.IN_USE: 3,
+            VehicleStatus.MAINTENANCE: 0,
+            VehicleStatus.RETIRED: 0,
+        }
+        assert fleet.total == 11
+
+    async def test_should_count_the_whole_fleet_regardless_of_the_page(
+        self, service: VehicleService, vehicle_repository: AsyncMock
+    ) -> None:
+        # The counts answer "how is the fleet doing?", which is a different
+        # question from "what is on this screen?".
+        vehicle_repository.list.return_value = [_vehicle()]
+        vehicle_repository.count_by_status.return_value = {VehicleStatus.AVAILABLE: 500}
+
+        fleet = await service.fleet_status(limit=1)
+
+        assert fleet.total == 500
+        assert len(fleet.entries) == 1
+
+    async def test_should_narrow_the_total_to_the_filtered_status(
+        self, service: VehicleService, vehicle_repository: AsyncMock
+    ) -> None:
+        # total is what a caller can page through, so under a filter it counts
+        # only that status -- while counts keeps describing the whole fleet.
+        vehicle_repository.list.return_value = []
+        vehicle_repository.count_by_status.return_value = {
+            VehicleStatus.AVAILABLE: 8,
+            VehicleStatus.IN_USE: 3,
+            VehicleStatus.RETIRED: 12,
+        }
+
+        fleet = await service.fleet_status(status=VehicleStatus.IN_USE)
+
+        assert fleet.total == 3
+        assert fleet.counts[VehicleStatus.RETIRED] == 12
+
+    async def test_should_total_zero_for_a_status_with_no_vehicles(
+        self, service: VehicleService, vehicle_repository: AsyncMock
+    ) -> None:
+        vehicle_repository.list.return_value = []
+        vehicle_repository.count_by_status.return_value = {VehicleStatus.AVAILABLE: 8}
+
+        fleet = await service.fleet_status(status=VehicleStatus.MAINTENANCE)
+
+        assert fleet.total == 0
+
+    async def test_should_count_retired_vehicles_in_the_unfiltered_total(
+        self, service: VehicleService, vehicle_repository: AsyncMock
+    ) -> None:
+        # The listing returns retired vehicles too, so a total that left them
+        # out would promise fewer rows than paging actually yields.
+        vehicle_repository.list.return_value = []
+        vehicle_repository.count_by_status.return_value = {
+            VehicleStatus.AVAILABLE: 2,
+            VehicleStatus.RETIRED: 1,
+        }
+
+        fleet = await service.fleet_status()
+
+        assert fleet.total == 3
+
+    async def test_should_not_hide_retired_vehicles_from_the_page(
+        self, service: VehicleService, vehicle_repository: AsyncMock
+    ) -> None:
+        retired = _vehicle(status=VehicleStatus.RETIRED, retired_at=NOW)
+        vehicle_repository.list.return_value = [retired, _vehicle()]
+        vehicle_repository.count_by_status.return_value = {}
+
+        fleet = await service.fleet_status()
+
+        assert [entry.vehicle.status for entry in fleet.entries] == [
+            VehicleStatus.RETIRED,
+            VehicleStatus.AVAILABLE,
+        ]
+
+    async def test_should_look_up_rentals_only_for_vehicles_in_use(
+        self,
+        service: VehicleService,
+        vehicle_repository: AsyncMock,
+        rental_repository: AsyncMock,
+    ) -> None:
+        in_use = _vehicle(registration_number="AA-222", status=VehicleStatus.IN_USE)
+        available = _vehicle()
+        vehicle_repository.list.return_value = [in_use, available]
+        vehicle_repository.count_by_status.return_value = {}
+        rental_repository.list_active_for_vehicles.return_value = []
+
+        await service.fleet_status()
+
+        # An available vehicle cannot have an open rental, so widening the
+        # lookup would read more rows for the same answer.
+        rental_repository.list_active_for_vehicles.assert_awaited_once_with([in_use.id])
+
+    async def test_should_pair_each_vehicle_with_its_own_rental(
+        self,
+        service: VehicleService,
+        vehicle_repository: AsyncMock,
+        rental_repository: AsyncMock,
+    ) -> None:
+        first = _vehicle(registration_number="AA-222", status=VehicleStatus.IN_USE)
+        second = _vehicle(registration_number="AA-333", status=VehicleStatus.IN_USE)
+        vehicle_repository.list.return_value = [first, second]
+        vehicle_repository.count_by_status.return_value = {}
+        rentals = [
+            Rental(vehicle_id=second.id, customer_name="Bob", start_at=NOW),
+            Rental(vehicle_id=first.id, customer_name="Ada", start_at=NOW),
+        ]
+        rental_repository.list_active_for_vehicles.return_value = rentals
+
+        fleet = await service.fleet_status()
+
+        # Rentals come back in whatever order the index yields, so they are
+        # matched by vehicle id rather than by position.
+        assert [entry.current_rental.customer_name for entry in fleet.entries] == [  # type: ignore[union-attr]
+            "Ada",
+            "Bob",
+        ]
+
+    async def test_should_skip_the_rental_query_when_no_vehicle_is_in_use(
+        self,
+        service: VehicleService,
+        vehicle_repository: AsyncMock,
+        rental_repository: AsyncMock,
+    ) -> None:
+        vehicle_repository.list.return_value = [_vehicle()]
+        vehicle_repository.count_by_status.return_value = {}
+        rental_repository.list_active_for_vehicles.return_value = []
+
+        fleet = await service.fleet_status()
+
+        assert fleet.entries[0].current_rental is None
+        rental_repository.list_active_for_vehicles.assert_awaited_once_with([])
+
+    async def test_should_leave_the_rental_unset_when_none_comes_back(
+        self,
+        service: VehicleService,
+        vehicle_repository: AsyncMock,
+        rental_repository: AsyncMock,
+    ) -> None:
+        # A vehicle can read as in_use with its rental already closed by a
+        # concurrent transaction. The page should still render, not blow up.
+        vehicle_repository.list.return_value = [_vehicle(status=VehicleStatus.IN_USE)]
+        vehicle_repository.count_by_status.return_value = {}
+        rental_repository.list_active_for_vehicles.return_value = []
+
+        fleet = await service.fleet_status()
+
+        assert fleet.entries[0].current_rental is None
+
+    async def test_should_not_commit(
+        self,
+        service: VehicleService,
+        vehicle_repository: AsyncMock,
+        session: AsyncMock,
+    ) -> None:
+        vehicle_repository.list.return_value = []
+        vehicle_repository.count_by_status.return_value = {}
+
+        await service.fleet_status()
+
+        session.commit.assert_not_awaited()

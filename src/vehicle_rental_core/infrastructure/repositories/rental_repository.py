@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy import select
@@ -57,6 +58,28 @@ class RentalRepository:
             .limit(1)
         )
         return (await self._session.execute(statement)).first() is not None
+
+    async def list_active_for_vehicles(
+        self, vehicle_ids: Sequence[UUID]
+    ) -> list[Rental]:
+        """The open rentals of many vehicles, in one query.
+
+        The batch sibling of :meth:`get_active_rental_for_vehicle`, for callers
+        holding a page of vehicles: asking per vehicle would be an N+1. At most
+        one rental comes back per id, guaranteed by
+        ``uq_rentals_one_active_per_vehicle``, which also serves the lookup.
+        """
+        # An empty IN () is a valid query that can only return nothing, so the
+        # round trip is skipped rather than sent.
+        if not vehicle_ids:
+            return []
+
+        statement = select(RentalModel).where(
+            RentalModel.vehicle_id.in_(vehicle_ids),
+            RentalModel.end_at.is_(None),
+        )
+        models = (await self._session.execute(statement)).scalars().all()
+        return [rental_to_domain(model) for model in models]
 
     async def list_for_vehicle(
         self, vehicle_id: UUID, *, offset: int = 0, limit: int = 20

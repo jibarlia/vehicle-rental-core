@@ -121,6 +121,29 @@ class TestCompleteRental:
         # Pydantic renders UTC as "Z"; compare instants, not spellings.
         assert datetime.fromisoformat(response.json()["end_at"]) == ended
 
+    async def test_should_complete_without_a_body(
+        self, client: AsyncClient, rental_service: AsyncMock
+    ) -> None:
+        rental_service.complete.return_value = _rental(end_at=NOW)
+
+        response = await client.post(f"/rentals/{uuid4()}/complete")
+
+        assert response.status_code == 200
+        assert rental_service.complete.await_args.kwargs["end_at"] is None
+
+    async def test_should_still_accept_an_explicit_end_at(
+        self, client: AsyncClient, rental_service: AsyncMock
+    ) -> None:
+        ended = datetime(2026, 6, 5, tzinfo=UTC)
+        rental_service.complete.return_value = _rental(end_at=ended)
+
+        response = await client.post(
+            f"/rentals/{uuid4()}/complete", json={"end_at": ended.isoformat()}
+        )
+
+        assert response.status_code == 200
+        assert rental_service.complete.await_args.kwargs["end_at"] == ended
+
     async def test_should_return_404_for_an_unknown_rental(
         self, client: AsyncClient, rental_service: AsyncMock
     ) -> None:

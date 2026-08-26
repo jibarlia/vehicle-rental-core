@@ -31,8 +31,12 @@ async def get_rental(rental_id: UUID, rental_service: RentalServiceDep) -> Renta
 
 @router.post("/{rental_id}/complete", response_model=RentalRead)
 async def complete_rental(
-    rental_id: UUID, payload: RentalComplete, rental_service: RentalServiceDep
+    rental_id: UUID,
+    rental_service: RentalServiceDep,
+    payload: RentalComplete | None = None,
 ) -> RentalRead:
-    """Close an active rental and release the vehicle back to available."""
-    rental = await rental_service.complete(rental_id, end_at=payload.end_at)
+    """Close an active rental and release the vehicle. Ends now unless end_at is set."""
+    rental = await rental_service.complete(
+        rental_id, end_at=payload.end_at if payload is not None else None
+    )
     return RentalRead.model_validate(rental)
