@@ -1,16 +1,106 @@
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
+from uuid import uuid4
 
 import pytest
 
-from vehicle_rental_core.domain.enums import VehicleStatus
+from vehicle_rental_core.domain.enums import VehicleStatus, VehicleType
 from vehicle_rental_core.infrastructure.repositories.vehicle_repository import (
     VehicleRepository,
 )
+
+NOW = datetime(2026, 6, 1, tzinfo=UTC)
 
 
 @pytest.fixture
 def repository(session: AsyncMock) -> VehicleRepository:
     return VehicleRepository(session)
+
+
+def _empty_result(session: AsyncMock) -> None:
+    """Make ``session.execute`` yield no rows, so only the SQL is under test."""
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = []
+    session.execute.return_value = result
+
+
+def _executed_sql(session: AsyncMock) -> str:
+    statement = session.execute.await_args.args[0]
+    return str(statement.compile(compile_kwargs={"literal_binds": True}))
+
+
+class TestList:
+    """What the listing does and does not filter.
+
+    Pinned because it was silent for a long time: the listing used to drop
+    retired vehicles with no parameter saying so, which left a caller unable to
+    ask for the whole collection and unable to tell that anything was missing.
+    """
+
+    async def test_should_not_filter_at_all_when_no_status_is_given(
+        self, repository: VehicleRepository, session: AsyncMock
+    ) -> None:
+        _empty_result(session)
+
+        await repository.list()
+
+        # No predicate whatsoever -- in particular not the "status != retired"
+        # that used to be implied by an unfiltered call.
+        assert "WHERE" not in _executed_sql(session)
+
+    async def test_should_return_a_retired_vehicle_the_query_yields(
+        self, repository: VehicleRepository, session: AsyncMock
+    ) -> None:
+        # The SQL is only half the guarantee: nothing may drop the row on the
+        # way back out either.
+        model = MagicMock()
+        model.id = uuid4()
+        model.vehicle_type = VehicleType.CAR
+        model.registration_number = "AA-111"
+        model.model = "Corolla"
+        model.year = 2022
+        model.status = VehicleStatus.RETIRED
+        model.retired_at = NOW
+        model.version = 2
+        model.created_at = NOW
+        model.updated_at = NOW
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = [model]
+        session.execute.return_value = result
+
+        vehicles = await repository.list()
+
+        assert [vehicle.status for vehicle in vehicles] == [VehicleStatus.RETIRED]
+
+    async def test_should_narrow_to_the_requested_status(
+        self, repository: VehicleRepository, session: AsyncMock
+    ) -> None:
+        _empty_result(session)
+
+        await repository.list(status=VehicleStatus.MAINTENANCE)
+
+        assert "status = 'maintenance'" in _executed_sql(session)
+
+    async def test_should_still_return_retired_vehicles_when_asked_by_name(
+        self, repository: VehicleRepository, session: AsyncMock
+    ) -> None:
+        _empty_result(session)
+
+        await repository.list(status=VehicleStatus.RETIRED)
+
+        assert "status = 'retired'" in _executed_sql(session)
+
+    async def test_should_page_newest_first(
+        self, repository: VehicleRepository, session: AsyncMock
+    ) -> None:
+        _empty_result(session)
+
+        await repository.list(offset=40, limit=10)
+
+        sql = _executed_sql(session)
+        assert "ORDER BY vehicles.created_at DESC" in sql
+        assert "LIMIT 10" in sql
+        assert "OFFSET 40" in sql
 
 
 class TestCountByStatus:

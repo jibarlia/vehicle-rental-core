@@ -240,6 +240,24 @@ class TestFleetStatus:
         }
         assert body["total"] == 11
 
+    async def test_should_carry_a_retired_vehicle_in_items(
+        self, client: AsyncClient, vehicle_service: AsyncMock
+    ) -> None:
+        # The status view reports on the fleet, and a report that silently drops
+        # part of its population is a report that misleads.
+        retired = _vehicle(status=VehicleStatus.RETIRED, retired_at=NOW)
+        vehicle_service.fleet_status.return_value = self._fleet(
+            VehicleStatusEntry(vehicle=retired), retired=1
+        )
+
+        response = await client.get("/vehicles/status")
+
+        body = response.json()
+        assert [item["status"] for item in body["items"]] == ["retired"]
+        # And the total counts it, so it does not promise fewer rows than
+        # paging delivers.
+        assert body["total"] == 1
+
     async def test_should_nest_the_active_rental_under_a_vehicle_in_use(
         self, client: AsyncClient, vehicle_service: AsyncMock
     ) -> None:

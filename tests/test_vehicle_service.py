@@ -325,6 +325,62 @@ class TestFleetStatus:
         assert fleet.total == 500
         assert len(fleet.entries) == 1
 
+    async def test_should_narrow_the_total_to_the_filtered_status(
+        self, service: VehicleService, vehicle_repository: AsyncMock
+    ) -> None:
+        # total is what a caller can page through, so under a filter it counts
+        # only that status -- while counts keeps describing the whole fleet.
+        vehicle_repository.list.return_value = []
+        vehicle_repository.count_by_status.return_value = {
+            VehicleStatus.AVAILABLE: 8,
+            VehicleStatus.IN_USE: 3,
+            VehicleStatus.RETIRED: 12,
+        }
+
+        fleet = await service.fleet_status(status=VehicleStatus.IN_USE)
+
+        assert fleet.total == 3
+        assert fleet.counts[VehicleStatus.RETIRED] == 12
+
+    async def test_should_total_zero_for_a_status_with_no_vehicles(
+        self, service: VehicleService, vehicle_repository: AsyncMock
+    ) -> None:
+        vehicle_repository.list.return_value = []
+        vehicle_repository.count_by_status.return_value = {VehicleStatus.AVAILABLE: 8}
+
+        fleet = await service.fleet_status(status=VehicleStatus.MAINTENANCE)
+
+        assert fleet.total == 0
+
+    async def test_should_count_retired_vehicles_in_the_unfiltered_total(
+        self, service: VehicleService, vehicle_repository: AsyncMock
+    ) -> None:
+        # The listing returns retired vehicles too, so a total that left them
+        # out would promise fewer rows than paging actually yields.
+        vehicle_repository.list.return_value = []
+        vehicle_repository.count_by_status.return_value = {
+            VehicleStatus.AVAILABLE: 2,
+            VehicleStatus.RETIRED: 1,
+        }
+
+        fleet = await service.fleet_status()
+
+        assert fleet.total == 3
+
+    async def test_should_not_hide_retired_vehicles_from_the_page(
+        self, service: VehicleService, vehicle_repository: AsyncMock
+    ) -> None:
+        retired = _vehicle(status=VehicleStatus.RETIRED, retired_at=NOW)
+        vehicle_repository.list.return_value = [retired, _vehicle()]
+        vehicle_repository.count_by_status.return_value = {}
+
+        fleet = await service.fleet_status()
+
+        assert [entry.vehicle.status for entry in fleet.entries] == [
+            VehicleStatus.RETIRED,
+            VehicleStatus.AVAILABLE,
+        ]
+
     async def test_should_look_up_rentals_only_for_vehicles_in_use(
         self,
         service: VehicleService,
