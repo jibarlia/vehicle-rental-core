@@ -56,17 +56,14 @@ class CustomerRepository:
         return customer_to_domain(model)
 
     async def delete(self, customer_id: UUID) -> None:
-        """Remove the customer, letting the database null its rentals' FK.
+        """Remove the customer, letting the FK's ON DELETE SET NULL keep the rentals.
 
-        Issued as a single statement rather than a load-then-delete: the row
-        does not need to be in the session, and ``passive_deletes`` on the
-        rentals relationship means the ``ON DELETE SET NULL`` is the database's
-        job either way. Deleting a row that is not there is a no-op — the
-        caller establishes existence when it wants a 404.
+        One statement rather than a load-then-delete: the row need not be in the
+        session. Deleting a row that is not there is a no-op — the caller
+        establishes existence when it wants a 404.
         """
         statement = delete(CustomerModel).where(CustomerModel.id == customer_id)
         await self._session.execute(statement)
-        await self._session.flush()
 
     async def _get_model(self, customer_id: UUID) -> CustomerModel | None:
         statement = select(CustomerModel).where(CustomerModel.id == customer_id)

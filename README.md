@@ -110,7 +110,8 @@ explore and call the API.
 | `GET` | `/vehicles/status` | Fleet status: counts across every vehicle, plus a page of them |
 | `GET` | `/vehicles/{vehicle_id}` | Get a vehicle |
 | `PATCH` | `/vehicles/{vehicle_id}` | Update its details or status |
-| `POST` | `/vehicles/{vehicle_id}/retire` | Permanently retire it from service |
+| `DELETE` | `/vehicles/{vehicle_id}` | Delete it, cascading away its rental history |
+| `POST` | `/vehicles/{vehicle_id}/retire` | Retire it from service, keeping its record |
 | `GET` | `/vehicles/{vehicle_id}/rentals` | List its rental history |
 | `POST` | `/customers` | Register a customer |
 | `GET` | `/customers` | List customers |
@@ -165,8 +166,8 @@ Both listings return **every** vehicle, retired ones included. A collection
 endpoint that quietly withheld part of the collection would leave a caller no way
 to request the whole thing and no way to notice anything was missing; narrowing
 is the caller's to ask for, with `?status=`. Retired vehicles accumulate, so
-bounding them is a retention concern rather than something the read path should
-decide on a caller's behalf.
+bounding them is a retention concern — `DELETE /vehicles/{id}` is the tool for
+that — rather than something the read path should decide on a caller's behalf.
 
 ### CLI
 
@@ -289,6 +290,7 @@ src/vehicle_rental_core/
 | Start a rental | Verify the vehicle and customer, snapshot the customer name, open the rental, and mark the vehicle `in_use` | Rental and vehicle update commit in one transaction; a partial unique index permits only one active rental per vehicle |
 | Complete a rental | Set its end time and return an `in_use` vehicle to `available` | Both changes commit in one transaction |
 | Retire a vehicle | Reject active rentals, set `status=retired`, and record `retired_at` | Retirement is terminal and the row and rental history remain available |
+| Delete a vehicle | Reject active rentals, then remove the row | `ON DELETE CASCADE` takes every rental of that vehicle with it |
 | Delete a customer | Delete the customer record while retaining previous rentals | The customer foreign key becomes `NULL`; the snapshotted customer name preserves historical context |
 
 ## Design decisions
@@ -299,8 +301,10 @@ src/vehicle_rental_core/
   and API collections are plural (`vehicles`, `/rentals`).
 - **Async I/O, synchronous workflow:** API routes and persistence are async, while each
   user operation still returns a definitive success or failure in the same request.
-- **Retirement instead of deletion:** vehicles leave service without erasing their
-  identity or rental history. No hard-delete endpoint is exposed.
+- **Retirement alongside deletion:** two removals with different meanings. Retiring
+  takes a vehicle out of service while keeping its identity and rental history;
+  deleting erases the row and cascades its rentals away, for a vehicle that should
+  never have existed. Both refuse while a rental is active.
 - **History survives customer deletion:** rentals snapshot the customer's name when
   they start, so later profile changes or deletion do not rewrite the past.
 - **Rules at two levels:** domain entities provide meaningful failures; PostgreSQL

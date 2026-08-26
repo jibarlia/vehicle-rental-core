@@ -10,6 +10,7 @@ from vehicle_rental_core.application.views import FleetStatus, VehicleStatusEntr
 from vehicle_rental_core.domain.enums import VehicleStatus, VehicleType
 from vehicle_rental_core.domain.errors import (
     RegistrationNumberAlreadyExistsError,
+    VehicleHasActiveRentalError,
     VehicleNotFoundError,
 )
 from vehicle_rental_core.domain.rental import Rental
@@ -165,8 +166,8 @@ class VehicleService:
     async def retire(self, vehicle_id: UUID) -> Vehicle:
         """Retire a vehicle from the fleet, keeping it and its rentals on record.
 
-        The only supported way to remove one from service: a hard DELETE
-        cascades to the rentals.
+        Takes a vehicle out of service without erasing it, unlike
+        :meth:`delete`.
         """
         vehicle = await self.get(vehicle_id)
         vehicle.retire(
@@ -176,6 +177,23 @@ class VehicleService:
         retired = await self._vehicle_repository.update(vehicle)
         await self._commit()
         return retired
+
+    async def delete(self, vehicle_id: UUID) -> None:
+        """Delete a vehicle and, by cascade, every rental it appeared in.
+
+        A retired vehicle can be deleted: retirement blocks *changes*, and this
+        erases the row rather than changing it.
+        """
+        await self.get(vehicle_id)
+        # Deleting a vehicle someone is currently driving would take the open
+        # rental with it, so the guard matches retire's.
+        if await self._has_active_rental(vehicle_id):
+            raise VehicleHasActiveRentalError(
+                f"Vehicle {vehicle_id} has an active rental."
+            )
+
+        await self._vehicle_repository.delete(vehicle_id)
+        await self._commit()
 
     async def _has_active_rental(self, vehicle_id: UUID) -> bool:
         return await self._rental_repository.has_active_rental_for_vehicle(vehicle_id)

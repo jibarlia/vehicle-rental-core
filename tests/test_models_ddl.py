@@ -104,8 +104,7 @@ class TestRentalConstraints:
     def test_should_cascade_hard_deletion_of_a_vehicle(self) -> None:
         ddl = _create_table(RentalModel)
 
-        # A rental is meaningless without its vehicle, so a hard delete takes
-        # the rentals with it. Retiring a vehicle for real is retiring.
+        # What DELETE /vehicles/{id} relies on to clear the rentals.
         assert "ON DELETE CASCADE" in ddl
 
     def test_end_at_should_be_nullable_because_null_means_active(self) -> None:

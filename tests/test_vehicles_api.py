@@ -156,13 +156,41 @@ class TestRetireVehicle:
 
         assert response.status_code == 409
 
-    async def test_there_should_be_no_delete_endpoint(
-        self, client: AsyncClient
+
+class TestDeleteVehicle:
+    async def test_should_return_204(
+        self, client: AsyncClient, vehicle_service: AsyncMock
     ) -> None:
-        # Deleting cascades to the rentals, so it is deliberately unreachable.
+        vehicle_id = uuid4()
+
+        response = await client.delete(f"/vehicles/{vehicle_id}")
+
+        assert response.status_code == 204
+        vehicle_service.delete.assert_awaited_once_with(vehicle_id)
+
+    async def test_should_return_404_for_an_unknown_vehicle(
+        self, client: AsyncClient, vehicle_service: AsyncMock
+    ) -> None:
+        vehicle_service.delete.side_effect = VehicleNotFoundError("nope")
+
         response = await client.delete(f"/vehicles/{uuid4()}")
 
-        assert response.status_code == 405
+        assert response.status_code == 404
+
+    async def test_should_return_409_while_a_rental_is_active(
+        self, client: AsyncClient, vehicle_service: AsyncMock
+    ) -> None:
+        vehicle_service.delete.side_effect = VehicleHasActiveRentalError("rented")
+
+        response = await client.delete(f"/vehicles/{uuid4()}")
+
+        assert response.status_code == 409
+        assert response.json()["error"] == "VehicleHasActiveRentalError"
+
+    async def test_should_reject_a_malformed_uuid(self, client: AsyncClient) -> None:
+        response = await client.delete("/vehicles/not-a-uuid")
+
+        assert response.status_code == 422
 
 
 class TestUpdateVehicle:

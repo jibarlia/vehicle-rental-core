@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vehicle_rental_core.domain.enums import VehicleStatus
@@ -89,6 +89,15 @@ class VehicleRepository:
         await self._session.flush()
         await self._session.refresh(model)
         return vehicle_to_domain(model)
+
+    async def delete(self, vehicle_id: UUID) -> None:
+        """Remove the vehicle, letting the FK's ON DELETE CASCADE clear its rentals.
+
+        One statement rather than a load-then-delete: the row need not be in the
+        session. Deleting a row that is not there is a no-op.
+        """
+        statement = delete(VehicleModel).where(VehicleModel.id == vehicle_id)
+        await self._session.execute(statement)
 
     async def _get_model(self, vehicle_id: UUID) -> VehicleModel | None:
         statement = select(VehicleModel).where(VehicleModel.id == vehicle_id)

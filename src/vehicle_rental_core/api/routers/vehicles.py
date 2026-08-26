@@ -102,11 +102,21 @@ async def update_vehicle(
 async def retire_vehicle(vehicle_id: UUID, service: VehicleServiceDep) -> VehicleRead:
     """Retire a vehicle from the fleet, keeping it and its rentals on record.
 
-    The only way to remove one from service; there is deliberately no DELETE,
-    because deleting cascades to the rentals. Returns 409 while a rental is
+    Prefer this to DELETE when the vehicle really existed: it takes the vehicle
+    out of service without erasing its history. Returns 409 while a rental is
     active.
     """
     return VehicleRead.model_validate(await service.retire(vehicle_id))
+
+
+@router.delete("/{vehicle_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_vehicle(vehicle_id: UUID, service: VehicleServiceDep) -> None:
+    """Delete a vehicle and, by cascade, every rental it ever appeared in.
+
+    Destroys history, so prefer ``/retire`` for a vehicle that was really in
+    service. Returns 409 while a rental is active.
+    """
+    await service.delete(vehicle_id)
 
 
 @router.get("/{vehicle_id}/rentals", response_model=list[RentalRead])
