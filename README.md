@@ -107,6 +107,7 @@ explore and call the API.
 | --- | --- | --- |
 | `POST` | `/vehicles` | Add a vehicle to the fleet |
 | `GET` | `/vehicles` | List vehicles, optionally filtered by `status` |
+| `GET` | `/vehicles/status` | Fleet status: counts across every vehicle, plus a page of them |
 | `GET` | `/vehicles/{vehicle_id}` | Get a vehicle |
 | `PATCH` | `/vehicles/{vehicle_id}` | Update its details or status |
 | `POST` | `/vehicles/{vehicle_id}/retire` | Permanently retire it from service |
@@ -122,6 +123,41 @@ explore and call the API.
 
 Domain failures are translated consistently at the API boundary: missing resources
 return `404`, state conflicts return `409`, and invalid input returns `422`.
+
+#### Fleet status
+
+`GET /vehicles/status` answers "how is the fleet doing right now?" in one call:
+
+```jsonc
+{
+  "counts": { "available": 8, "in_use": 3, "maintenance": 1, "retired": 0 },
+  "total": 12,
+  "items": [
+    {
+      "id": "…", "registration_number": "AB-123-CD",
+      "model": "Corolla", "year": 2021, "status": "in_use",
+      "current_rental": {
+        "id": "…", "customer_id": "…",
+        "customer_name": "Dana Levi", "start_at": "2026-08-24T09:12:00Z"
+      }
+    }
+  ]
+}
+```
+
+Two things are worth knowing about the shape:
+
+- **`counts` and `total` describe the whole fleet.** They are unaffected by
+  `status`, `offset` and `limit`, which page `items` alone, and every status is
+  present even at zero — so a dashboard can render a fixed set of tiles without
+  walking the table. Retired vehicles are counted under their own status even
+  though `items` hides them, because a tally that omitted them would not add up.
+- **`items` is always one page**, `limit` capped at 100. Grouping is done by
+  filtering: `?status=in_use` is the group, paginated on its own.
+
+A vehicle that is out carries the rental explaining it, which saves a caller from
+asking each vehicle in turn. Rows are a deliberate subset of `GET /vehicles` — the
+fields a board displays and no more; the full record is a `GET /vehicles/{id}` away.
 
 ### CLI
 
