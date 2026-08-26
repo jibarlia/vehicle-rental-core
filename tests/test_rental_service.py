@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -247,3 +248,61 @@ class TestCompleteRental:
         await service.complete(rental.id)
 
         vehicle_repository.update.assert_not_awaited()
+
+
+class TestAuditLogging:
+    async def test_should_log_a_started_rental(
+        self,
+        service: RentalService,
+        vehicle_repository: AsyncMock,
+        rental_repository: AsyncMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        vehicle = _vehicle()
+        vehicle_repository.get.return_value = vehicle
+        rental_repository.add.side_effect = lambda rental: rental
+
+        created = await service.start(vehicle_id=vehicle.id, customer_id=uuid4())
+
+        record = caplog.records[-1]
+        assert record.message == "Rental started"
+        assert record.__dict__["rental_id"] == str(created.id)
+        assert record.__dict__["vehicle_id"] == str(vehicle.id)
+        assert record.__dict__["customer_id"] == str(created.customer_id)
+
+    async def test_should_log_a_completed_rental(
+        self,
+        service: RentalService,
+        rental_repository: AsyncMock,
+        vehicle_repository: AsyncMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        vehicle = _vehicle(status=VehicleStatus.IN_USE)
+        rental = Rental(vehicle_id=vehicle.id, customer_name="Ada", start_at=NOW)
+        rental_repository.get.return_value = rental
+        rental_repository.update.side_effect = lambda updated: updated
+        vehicle_repository.get.return_value = vehicle
+
+        await service.complete(rental.id)
+
+        record = caplog.records[-1]
+        assert record.message == "Rental completed"
+        assert record.__dict__["rental_id"] == str(rental.id)
+        assert record.__dict__["vehicle_id"] == str(vehicle.id)
+        assert record.__dict__["end_at"] == NOW.isoformat()
+
+    async def test_should_not_log_a_rejected_start(
+        self,
+        service: RentalService,
+        vehicle_repository: AsyncMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        vehicle_repository.get.return_value = None
+
+        with pytest.raises(VehicleNotFoundError):
+            await service.start(vehicle_id=uuid4(), customer_id=uuid4())
+
+        assert caplog.records == []

@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from uuid import UUID
 
@@ -23,6 +24,8 @@ from vehicle_rental_core.infrastructure.repositories.rental_repository import (
 from vehicle_rental_core.infrastructure.repositories.vehicle_repository import (
     VehicleRepository,
 )
+
+logger = logging.getLogger(__name__)
 
 _ACTIVE_RENTAL_INDEX = "uq_rentals_one_active_per_vehicle"
 
@@ -87,6 +90,15 @@ class RentalService:
                 ) from exc
             raise
 
+        logger.info(
+            "Rental started",
+            extra={
+                "rental_id": str(created.id),
+                "vehicle_id": str(created.vehicle_id),
+                "customer_id": str(created.customer_id),
+                "start_at": created.start_at.isoformat(),
+            },
+        )
         return created
 
     async def complete(
@@ -104,6 +116,14 @@ class RentalService:
             await self._vehicle_repository.update(vehicle)
 
         await self._session.commit()
+        logger.info(
+            "Rental completed",
+            extra={
+                "rental_id": str(updated.id),
+                "vehicle_id": str(updated.vehicle_id),
+                "end_at": updated.end_at.isoformat() if updated.end_at else None,
+            },
+        )
         return updated
 
     async def get(self, rental_id: UUID) -> Rental:

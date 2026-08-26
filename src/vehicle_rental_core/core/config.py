@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field
@@ -21,6 +22,11 @@ class Settings(BaseSettings):
     environment: Literal["local", "test", "staging", "production"] = "local"
     debug: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+
+    # Opt-in: unset means stdout only, which is what containers want.
+    log_file: Path | None = None
+    log_file_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1024)
+    log_file_backup_count: int = Field(default=5, ge=0)
 
     # Must carry an async driver. Port 55432 is what docker-compose publishes
     # to the host; inside compose the services override this with 5432.

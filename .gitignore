@@ -31,6 +31,10 @@ htmlcov/
 .env
 .env.local
 
+# LOG_FILE output
+logs/
+*.log
+
 # Editors
 .idea/
 *.swp

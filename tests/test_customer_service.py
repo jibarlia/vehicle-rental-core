@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -192,3 +193,75 @@ class TestDeleteCustomer:
             await service.delete(uuid4())
 
         customer_repository.delete.assert_not_awaited()
+
+
+class TestAuditLogging:
+    async def test_should_log_a_created_customer(
+        self,
+        service: CustomerService,
+        customer_repository: AsyncMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        customer_repository.get_by_email.return_value = None
+        customer_repository.add.side_effect = lambda customer: customer
+
+        created = await service.create(
+            name="Ada Lovelace", email="ada@example.com", date_of_birth=BORN
+        )
+
+        record = caplog.records[-1]
+        assert record.message == "Customer created"
+        assert record.__dict__["customer_id"] == str(created.id)
+
+    async def test_should_log_an_updated_customer_with_the_changed_fields(
+        self,
+        service: CustomerService,
+        customer_repository: AsyncMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        customer = _customer()
+        customer_repository.get.return_value = customer
+        customer_repository.update.side_effect = lambda updated: updated
+
+        await service.update(customer.id, CustomerChanges(name="Ada L."))
+
+        record = caplog.records[-1]
+        assert record.message == "Customer updated"
+        assert record.__dict__["customer_id"] == str(customer.id)
+        assert record.__dict__["fields"] == ["name"]
+
+    async def test_should_log_a_deleted_customer(
+        self,
+        service: CustomerService,
+        customer_repository: AsyncMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        customer = _customer()
+        customer_repository.get.return_value = customer
+
+        await service.delete(customer.id)
+
+        record = caplog.records[-1]
+        assert record.message == "Customer deleted"
+        assert record.__dict__["customer_id"] == str(customer.id)
+
+    async def test_should_keep_personal_details_out_of_the_logs(
+        self,
+        service: CustomerService,
+        customer_repository: AsyncMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        customer_repository.get_by_email.return_value = None
+        customer_repository.add.side_effect = lambda customer: customer
+
+        await service.create(
+            name="Ada Lovelace", email="ada@example.com", date_of_birth=BORN
+        )
+
+        assert "ada@example.com" not in caplog.text
+        assert "Ada Lovelace" not in caplog.text
+        assert str(BORN) not in caplog.text

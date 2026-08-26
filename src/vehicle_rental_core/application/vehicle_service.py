@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Sequence
 from uuid import UUID
 
@@ -21,6 +22,8 @@ from vehicle_rental_core.infrastructure.repositories.rental_repository import (
 from vehicle_rental_core.infrastructure.repositories.vehicle_repository import (
     VehicleRepository,
 )
+
+logger = logging.getLogger(__name__)
 
 _REGISTRATION_NUMBER_INDEX = "ix_vehicles_registration_number"
 
@@ -75,6 +78,14 @@ class VehicleService:
                 ) from exc
             raise
 
+        logger.info(
+            "Vehicle created",
+            extra={
+                "vehicle_id": str(created.id),
+                "registration_number": created.registration_number,
+                "vehicle_type": created.vehicle_type.value,
+            },
+        )
         return created
 
     async def get(self, vehicle_id: UUID) -> Vehicle:
@@ -157,10 +168,19 @@ class VehicleService:
                 has_active_rental=await self._has_active_rental(vehicle_id),
             )
 
-        vehicle.apply(changes.attributes())
+        attributes = changes.attributes()
+        vehicle.apply(attributes)
 
         updated = await self._vehicle_repository.update(vehicle)
         await self._commit()
+        logger.info(
+            "Vehicle updated",
+            extra={
+                "vehicle_id": str(updated.id),
+                "fields": sorted(attributes),
+                "status": updated.status.value,
+            },
+        )
         return updated
 
     async def retire(self, vehicle_id: UUID) -> Vehicle:
@@ -176,6 +196,7 @@ class VehicleService:
         )
         retired = await self._vehicle_repository.update(vehicle)
         await self._commit()
+        logger.info("Vehicle retired", extra={"vehicle_id": str(retired.id)})
         return retired
 
     async def delete(self, vehicle_id: UUID) -> None:
@@ -194,6 +215,7 @@ class VehicleService:
 
         await self._vehicle_repository.delete(vehicle_id)
         await self._commit()
+        logger.info("Vehicle deleted", extra={"vehicle_id": str(vehicle_id)})
 
     async def _has_active_rental(self, vehicle_id: UUID) -> bool:
         return await self._rental_repository.has_active_rental_for_vehicle(vehicle_id)

@@ -199,6 +199,90 @@ Vehicle and rental commands call the REST API. Seeding runs directly through the
 application services so it can generate data without a running API while still
 respecting the same business rules.
 
+## Example: complete rental lifecycle
+
+The following example exercises the main workflow through the REST API. It assumes the
+application is running and uses the identifiers returned by each preceding request.
+
+### 1. Register a customer
+
+```bash
+API_URL=http://localhost:8000
+
+curl --request POST "$API_URL/customers" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "name": "Dana Levi",
+    "email": "dana.levi@example.com",
+    "date_of_birth": "1992-04-18",
+    "sex": "female"
+  }'
+```
+
+Copy the `id` from the response:
+
+```bash
+CUSTOMER_ID="paste-customer-id-here"
+```
+
+### 2. Add a vehicle
+
+```bash
+curl --request POST "$API_URL/vehicles" \
+  --header "Content-Type: application/json" \
+  --data '{
+    "registration_number": "IL-12345",
+    "model": "Toyota Corolla",
+    "year": 2024,
+    "vehicle_type": "car"
+  }'
+```
+
+Copy the returned vehicle identifier:
+
+```bash
+VEHICLE_ID="paste-vehicle-id-here"
+```
+
+### 3. Start a rental
+
+```bash
+curl --request POST "$API_URL/rentals" \
+  --header "Content-Type: application/json" \
+  --data "{
+    \"vehicle_id\": \"$VEHICLE_ID\",
+    \"customer_id\": \"$CUSTOMER_ID\"
+  }"
+```
+
+The operation creates the rental and marks the vehicle `in_use` in the same
+transaction. Copy the returned rental identifier:
+
+```bash
+RENTAL_ID="paste-rental-id-here"
+```
+
+The fleet view now includes the active rental alongside the vehicle:
+
+```bash
+curl "$API_URL/vehicles/status?status=in_use"
+```
+
+### 4. Complete the rental
+
+```bash
+curl --request POST "$API_URL/rentals/$RENTAL_ID/complete" \
+  --header "Content-Type: application/json" \
+  --data '{}'
+```
+
+The rental receives its end time and the vehicle returns to `available` atomically.
+The vehicle can subsequently leave the fleet without losing its history:
+
+```bash
+curl --request POST "$API_URL/vehicles/$VEHICLE_ID/retire"
+```
+
 ## Configuration
 
 Configuration is validated in one place with Pydantic Settings. Environment variables
@@ -219,6 +303,15 @@ DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/vehicle_renta
 The port is the only difference between the two, and it is the usual cause of a
 `connection refused` on a fresh checkout.
 
+Logging goes to stdout by default. Setting `LOG_FILE` adds a rotating file alongside
+it, with the same format in both places; the directory is created if missing:
+
+```env
+LOG_FILE=logs/vehicle-rental-core.log
+LOG_FILE_MAX_BYTES=10485760
+LOG_FILE_BACKUP_COUNT=5
+```
+
 Run `uv run vrc config` to inspect the resolved configuration. Credentials are
 redacted from its output.
 
@@ -228,44 +321,85 @@ The current implementation is a layered modular service. HTTP requests remain
 request-response operations; asynchronous Python and database I/O improve concurrency
 without making the business workflow event-driven.
 
+### System view
+
 ```mermaid
-flowchart TB
+flowchart LR
     User["Internal user or operator"]
 
-    subgraph Interfaces["Interfaces"]
-        API["FastAPI REST API"]
+    subgraph Delivery["Delivery"]
+        API["FastAPI / Uvicorn"]
         CLI["Typer CLI"]
     end
 
-    subgraph Application["Application layer"]
-        Services["Vehicle, customer, and rental use cases"]
+    subgraph Core["Business core"]
+        Services["Application services<br/>and use cases"]
+        Domain["Domain entities<br/>and business rules"]
     end
 
-    subgraph Domain["Domain layer"]
-        Rules["Entities, validation, and state transitions"]
+    subgraph Persistence["Persistence"]
+        Repositories["Async SQLAlchemy<br/>repositories"]
+        Alembic["Alembic migrations"]
+        Database[("PostgreSQL")]
     end
 
-    subgraph Infrastructure["Infrastructure layer"]
-        Repositories["Async SQLAlchemy repositories"]
-        Migrations["Alembic migrations"]
-        Observability["Logging, metrics, and health checks"]
-    end
-
-    Database[("PostgreSQL")]
+    Observability["Logging<br/>Metrics<br/>Health checks"]
 
     User --> API
     User --> CLI
     CLI -->|"vehicle and rental commands"| API
-    API --> Services
+    API -->|"validated request"| Services
     CLI -->|"seed command"| Services
-    Services --> Rules
+    Services --> Domain
     Services --> Repositories
     Repositories --> Database
-    CLI -->|"database commands"| Migrations
-    Migrations --> Database
+    CLI -->|"database commands"| Alembic
+    Alembic --> Database
     API -.-> Observability
+    Services -.-> Observability
     CLI -.-> Observability
 ```
+
+### Write-request flow
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant API as FastAPI route
+    participant Service as Application service
+    participant Domain as Domain entity
+    participant Repository as Repository
+    participant Session as Async SQLAlchemy session
+    participant DB as PostgreSQL
+
+    User->>API: HTTP command with JSON
+    API->>Service: Validated input
+    Service->>Repository: Load required state
+    Repository->>Session: Execute async query
+    Session->>DB: SELECT
+    DB-->>Session: Rows
+    Session-->>Repository: ORM models
+    Repository-->>Service: Domain entities
+    Service->>Domain: Apply rule or state transition
+
+    alt Business rule rejected
+        Domain-->>Service: Domain error
+        Service-->>API: Failure
+        API-->>User: 409 or 422 response
+    else Valid transition
+        Domain-->>Service: Updated state
+        Service->>Repository: Persist changes
+        Repository->>Session: INSERT / UPDATE / DELETE
+        Service->>Session: Commit transaction
+        Session->>DB: COMMIT
+        DB-->>Session: Committed
+        Service-->>API: Result
+        API-->>User: JSON response
+    end
+```
+
+Queries follow the same route through the API, application service, repository, and
+PostgreSQL, but do not perform a domain transition or commit a write transaction.
 
 - **API:** validates the HTTP contract and maps domain errors to responses.
 - **Application:** coordinates use cases and owns transaction boundaries.
@@ -373,7 +507,10 @@ uv run pre-commit run --all-files
 
 ## Observability
 
-- Standard Python logging with a single process-wide console format.
+- Standard Python logging to stdout and, when `LOG_FILE` is configured, to a rotating
+  file with bounded size and backup count.
+- Vehicle, rental, and customer state changes are logged with identifiers and relevant
+  context; customer names, email addresses, and dates of birth stay out of logs.
 - `GET /health` for liveness without touching external dependencies.
 - `GET /health/ready` for PostgreSQL readiness.
 - `GET /metrics` for Prometheus request counts and latency histograms.
@@ -403,8 +540,6 @@ uv run pre-commit run --all-files
 1. Add integration tests against PostgreSQL for repositories, migrations, and database
    constraints.
 2. Introduce a Unit of Work as the explicit transaction and repository boundary.
-3. Add a transactional outbox and RabbitMQ audit consumer if asynchronous messaging is
-   included in the final scope.
+3. Add a transactional outbox and RabbitMQ audit consumer.
 4. Add authentication and authorization.
-5. Add configurable rotating file logging for standalone deployments.
-6. Add reproducible performance benchmarks and load-test baselines.
+5. Add reproducible performance benchmarks and load-test baselines.

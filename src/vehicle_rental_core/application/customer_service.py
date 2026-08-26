@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 from uuid import UUID
 
@@ -14,6 +15,8 @@ from vehicle_rental_core.domain.errors import (
 from vehicle_rental_core.infrastructure.repositories.customer_repository import (
     CustomerRepository,
 )
+
+logger = logging.getLogger(__name__)
 
 _EMAIL_INDEX = "ix_customers_email"
 
@@ -54,6 +57,8 @@ class CustomerService:
             self._reraise_duplicate_email(exc, email)
             raise
 
+        # Identifiers only: name, email and date of birth stay out of the logs.
+        logger.info("Customer created", extra={"customer_id": str(created.id)})
         return created
 
     async def get(self, customer_id: UUID) -> Customer:
@@ -86,6 +91,10 @@ class CustomerService:
             self._reraise_duplicate_email(exc, str(new_email))
             raise
 
+        logger.info(
+            "Customer updated",
+            extra={"customer_id": str(updated.id), "fields": sorted(attributes)},
+        )
         return updated
 
     async def delete(self, customer_id: UUID) -> None:
@@ -97,6 +106,7 @@ class CustomerService:
         await self.get(customer_id)
         await self._customer_repository.delete(customer_id)
         await self._session.commit()
+        logger.info("Customer deleted", extra={"customer_id": str(customer_id)})
 
     async def _reject_taken_email(self, email: str) -> None:
         """Up front for a clean 409; the unique index is the real guarantee."""
