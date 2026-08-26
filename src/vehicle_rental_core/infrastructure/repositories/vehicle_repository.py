@@ -17,9 +17,10 @@ from vehicle_rental_core.infrastructure.repositories.mappers import (
 class VehicleRepository:
     """Data access for ``vehicles``.
 
-    Lookups by identity return retired vehicles — retiring a vehicle keeps its
-    record readable, which is the whole point of retiring rather than deleting.
-    Only :meth:`list` hides them, so the fleet listing shows working vehicles.
+    Nothing here hides retired vehicles. Retiring keeps the record readable —
+    that is the whole point of retiring rather than deleting — so a reader that
+    dropped those rows would be undoing the distinction. Callers that want a
+    narrower set say so with ``status``.
     """
 
     def __init__(self, session: AsyncSession) -> None:
@@ -53,16 +54,16 @@ class VehicleRepository:
         offset: int = 0,
         limit: int = 20,
     ) -> list[Vehicle]:
-        """The working fleet.
+        """Vehicles, newest first — every one of them unless ``status`` narrows it.
 
-        Retired vehicles are excluded unless asked for by name — passing
-        ``status=RETIRED`` returns them, so there is one rule and no extra flag.
+        Retired vehicles are included. A collection that quietly withheld part
+        of the collection would leave a caller no way to ask for the whole
+        thing, and no way to discover that anything was missing; narrowing is
+        the caller's business, spelled out with ``status``.
         """
         statement = select(VehicleModel)
         if status is not None:
             statement = statement.where(VehicleModel.status == status)
-        else:
-            statement = statement.where(VehicleModel.status != VehicleStatus.RETIRED)
 
         statement = (
             statement.order_by(VehicleModel.created_at.desc())
