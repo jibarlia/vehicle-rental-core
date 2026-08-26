@@ -132,11 +132,17 @@ class VehicleService:
             for vehicle in vehicles
         ]
 
-        return FleetStatus(
-            counts=complete_counts,
-            total=sum(complete_counts.values()),
-            entries=entries,
+        # How many rows the caller can page through, which is what a total on a
+        # paginated response is taken to mean. Read off the counts rather than
+        # counted again: they already tally every status over the whole table,
+        # so the filtered total is exact and costs no second query.
+        total = (
+            complete_counts[status]
+            if status is not None
+            else sum(complete_counts.values())
         )
+
+        return FleetStatus(counts=complete_counts, total=total, entries=entries)
 
     async def _active_rentals_by_vehicle(
         self, vehicles: Sequence[Vehicle]

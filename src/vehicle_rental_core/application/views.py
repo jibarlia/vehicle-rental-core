@@ -32,10 +32,16 @@ class VehicleStatusEntry:
 class FleetStatus:
     """One page of the fleet, under counts describing all of it.
 
-    ``counts`` and ``total`` are deliberately *not* narrowed by the filter or
-    the page that produced ``entries``: the question "how is the fleet doing?"
-    is not the question "what is on this screen?". Counts stay one aggregate
-    over every row, so their size does not grow with the fleet.
+    The two answer different questions, and are scoped accordingly:
+
+    ``counts`` is the fleet tally — every status over every row, untouched by
+    the filter or the page, because "how is the fleet doing?" is not "what is
+    on this screen?". Its size is fixed, so it does not grow with the fleet.
+
+    ``total`` is how many rows the caller can page through under the filter
+    that produced ``entries``. Keeping it in step with ``entries`` is the whole
+    of its job: a total that counts rows no amount of paging will reach is
+    worse than no total at all.
     """
 
     counts: Mapping[VehicleStatus, int]

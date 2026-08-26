@@ -73,8 +73,11 @@ class FleetStatusRead(BaseModel):
     """The fleet at a glance: counts over every vehicle, plus one page of them.
 
     ``counts`` covers the whole fleet and is unaffected by ``status``,
-    ``offset`` and ``limit``, which page ``items`` alone. Every status appears,
-    zero included, so a client can render a fixed set of tiles.
+    ``offset`` and ``limit``. Every status appears, zero included, so a client
+    can render a fixed set of tiles.
+
+    ``total`` is scoped to the filter instead: it is how many vehicles match
+    ``status``, and so how many ``items`` can yield across every page.
     """
 
     counts: dict[VehicleStatus, int]
