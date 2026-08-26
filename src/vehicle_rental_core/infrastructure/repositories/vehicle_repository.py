@@ -91,11 +91,10 @@ class VehicleRepository:
         return vehicle_to_domain(model)
 
     async def delete(self, vehicle_id: UUID) -> None:
-        """Remove the vehicle, letting the database cascade its rentals away.
+        """Remove the vehicle, letting the FK's ON DELETE CASCADE clear its rentals.
 
         One statement rather than a load-then-delete: the row need not be in the
-        session, and ``passive_deletes`` makes the cascade the database's job
-        either way. Deleting a row that is not there is a no-op.
+        session. Deleting a row that is not there is a no-op.
         """
         statement = delete(VehicleModel).where(VehicleModel.id == vehicle_id)
         await self._session.execute(statement)
