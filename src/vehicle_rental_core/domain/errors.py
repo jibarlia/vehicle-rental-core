@@ -21,12 +21,20 @@ class RentalNotFoundError(NotFoundError):
     pass
 
 
+class CustomerNotFoundError(NotFoundError):
+    pass
+
+
 class ConflictError(DomainError):
     """The request contradicts the current state of the system."""
 
 
 class RegistrationNumberAlreadyExistsError(ConflictError):
     pass
+
+
+class EmailAlreadyExistsError(ConflictError):
+    """Two customers cannot share an email — it is their natural key."""
 
 
 class VehicleHasActiveRentalError(ConflictError):
@@ -59,3 +67,7 @@ class InvalidRentalPeriodError(ValidationError):
 
 class InvalidVehicleYearError(ValidationError):
     """The model year is outside the range a real vehicle could carry."""
+
+
+class InvalidDateOfBirthError(ValidationError):
+    """The birth date is in the future or implies an implausible age."""

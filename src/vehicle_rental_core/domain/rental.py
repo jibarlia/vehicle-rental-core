@@ -20,6 +20,10 @@ class Rental(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
     vehicle_id: UUID
+    # The id may go away; the name may not. Deleting a customer nulls the FK
+    # and leaves ``customer_name`` standing, so the rental stays readable as
+    # history. That asymmetry is the point, not an oversight.
+    customer_id: UUID | None = None
     customer_name: str = Field(min_length=1, max_length=255)
     start_at: datetime
     end_at: datetime | None = None
