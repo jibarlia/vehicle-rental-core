@@ -76,8 +76,10 @@ class VehicleModel(TimestampMixin, Base):
 
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
+    # passive_deletes lets the database apply the ON DELETE CASCADE instead of
+    # SQLAlchemy loading every rental to delete it one at a time.
     rentals: Mapped[list[RentalModel]] = relationship(
-        back_populates="vehicle", cascade="all, delete"
+        back_populates="vehicle", cascade="all, delete", passive_deletes=True
     )
 
     # SQLAlchemy bumps and checks this on every UPDATE; a mismatch raises
