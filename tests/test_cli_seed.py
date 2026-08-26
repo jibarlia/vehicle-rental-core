@@ -97,22 +97,68 @@ class TestSeed:
     def test_should_be_reproducible_for_a_given_seed(
         self, services: dict[str, AsyncMock]
     ) -> None:
-        runner.invoke(
-            app, ["seed", "--vehicles", "4", "--customers", "4", "--seed", "7"]
-        )
+        # Reproducible needs the batch token pinned too: --seed alone fixes the
+        # names and dates, the token fixes the uniquely-indexed columns.
+        args = ["seed", "--vehicles", "4", "--customers", "4", "--seed", "7"]
+        runner.invoke(app, [*args, "--token", "123"])
         first = [
             c.kwargs["email"] for c in services["customers"].create.await_args_list
         ]
 
         services["customers"].create.reset_mock()
-        runner.invoke(
-            app, ["seed", "--vehicles", "4", "--customers", "4", "--seed", "7"]
-        )
+        runner.invoke(app, [*args, "--token", "123"])
         second = [
             c.kwargs["email"] for c in services["customers"].create.await_args_list
         ]
 
         assert first == second
+
+    def test_should_not_repeat_a_plate_across_runs(
+        self, services: dict[str, AsyncMock]
+    ) -> None:
+        # The point of the batch token: running twice for a demo must not hit
+        # the unique index on registration_number.
+        def plates() -> set[str]:
+            return {
+                call.kwargs["registration_number"]
+                for call in services["vehicles"].create.await_args_list
+            }
+
+        runner.invoke(app, ["seed", "--vehicles", "5", "--customers", "1"])
+        first = plates()
+
+        services["vehicles"].create.reset_mock()
+        runner.invoke(app, ["seed", "--vehicles", "5", "--customers", "1"])
+
+        assert first.isdisjoint(plates())
+
+    def test_should_not_repeat_an_email_across_runs(
+        self, services: dict[str, AsyncMock]
+    ) -> None:
+        # Same reasoning for the unique index on email.
+        def emails() -> set[str]:
+            return {
+                call.kwargs["email"]
+                for call in services["customers"].create.await_args_list
+            }
+
+        runner.invoke(app, ["seed", "--vehicles", "1", "--customers", "5"])
+        first = emails()
+
+        services["customers"].create.reset_mock()
+        runner.invoke(app, ["seed", "--vehicles", "1", "--customers", "5"])
+
+        assert first.isdisjoint(emails())
+
+    def test_should_report_the_batch_token(
+        self, services: dict[str, AsyncMock]
+    ) -> None:
+        # Echoed so you can tell which batch is which; every plate starts with it.
+        result = runner.invoke(
+            app, ["seed", "--vehicles", "1", "--customers", "1", "--token", "4217"]
+        )
+
+        assert "batch 04217" in result.output
 
     def test_should_differ_for_a_different_seed(
         self, services: dict[str, AsyncMock]
@@ -181,9 +227,33 @@ class TestSeed:
 
 
 class TestPlate:
-    def test_should_be_zero_padded_and_sequential(self) -> None:
-        assert seed_module._plate(0) == "SD-00000"
-        assert seed_module._plate(42) == "SD-00042"
+    def test_should_render_an_eight_digit_israeli_plate(self) -> None:
+        # NNN-NN-NNN: five digits of batch token, three of vehicle index.
+        assert seed_module._plate(4217, 0) == "042-17-000"
+        assert seed_module._plate(4217, 42) == "042-17-042"
+        assert seed_module._plate(99999, 999) == "999-99-999"
+
+    def test_should_stay_distinct_within_a_batch(self) -> None:
+        plates = {seed_module._plate(4217, index) for index in range(1000)}
+
+        assert len(plates) == 1000
+
+    def test_should_stay_distinct_across_batches(self) -> None:
+        assert seed_module._plate(1, 0) != seed_module._plate(2, 0)
+
+
+class TestEmail:
+    def test_should_tag_the_local_part_with_the_batch_token(self) -> None:
+        assert seed_module._email(4217, "ada@example.com") == "ada+04217@example.com"
+
+    def test_should_keep_the_domain_intact(self) -> None:
+        assert seed_module._email(1, "a@b.co.il").endswith("@b.co.il")
+
+
+class TestRunToken:
+    def test_should_stay_within_five_digits(self) -> None:
+        # Wider than that and the plate would overflow its NNN-NN-NNN layout.
+        assert all(0 <= seed_module._run_token() < 100_000 for _ in range(200))
 
 
 class TestLazyFakerImport:
