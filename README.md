@@ -26,19 +26,75 @@ docker compose down
 
 ## Local development
 
-Requirements: Python 3.14, [uv](https://docs.astral.sh/uv/), and Docker.
+Requirements: Python 3.14, [uv](https://docs.astral.sh/uv/), and PostgreSQL 14+ —
+either the Docker container from `docker-compose.yml` or an installation on your
+machine.
+
+### 1. Install the project
 
 ```bash
 uv sync --all-groups
 cp .env.example .env
 uv run pre-commit install
-docker compose up -d postgres
-uv run vrc db upgrade
-uv run vrc serve --reload
 ```
 
 `uv sync` creates the virtual environment and installs the exact dependency versions
 recorded in `uv.lock`.
+
+### 2. Provide a database
+
+`vrc db upgrade` creates the *tables*, not the database itself, so an empty
+`vehicle_rental` database has to exist before it runs. Pick one of the two options
+below.
+
+**Option A — PostgreSQL in Docker**
+
+```bash
+docker compose up -d postgres
+```
+
+The container creates the `vehicle_rental` database and the `postgres` role on first
+start and publishes them on host port **55432**, which is what `.env.example` already
+points at. Nothing else to configure.
+
+**Option B — a PostgreSQL installed on your machine**
+
+Create the database once:
+
+```bash
+createdb vehicle_rental
+```
+
+Then point `DATABASE_URL` in `.env` at your server. A local installation listens on the
+default port **5432**, and its credentials are your own rather than the container's
+`postgres:postgres`:
+
+```env
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/vehicle_rental
+```
+
+If the installation has no `postgres` role, either connect as your OS user
+(`postgresql+psycopg://$(whoami)@localhost:5432/vehicle_rental`) or create the role once
+so the URL matches the container's:
+
+```bash
+psql -d postgres -c "CREATE ROLE postgres LOGIN SUPERUSER PASSWORD 'postgres';"
+```
+
+### 3. Migrate and run
+
+Identical for both options:
+
+```bash
+uv run vrc db upgrade      # apply the Alembic migrations
+uv run vrc healthcheck     # confirm the API can reach the database
+uv run vrc serve --reload  # run the application
+```
+
+VS Code equivalents live in [`.vscode/launch.json`](.vscode/launch.json): **DB: upgrade**
+applies the migrations, **Healthcheck** verifies the connection, and **API (reload)** or
+**API + Swagger** starts the server. They all load `.env`, so they follow whichever
+option you configured above.
 
 ## Using the application
 
@@ -104,11 +160,18 @@ take precedence over `.env`; the common local values and defaults are documented
 [`.env.example`](.env.example).
 
 The API, CLI, and migrations all use the same `DATABASE_URL`. It must select an async
-driver, for example:
+driver — psycopg 3:
 
 ```env
+# Docker Compose publishes PostgreSQL on host port 55432
 DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:55432/vehicle_rental
+
+# A PostgreSQL installed on your machine listens on 5432
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/vehicle_rental
 ```
+
+The port is the only difference between the two, and it is the usual cause of a
+`connection refused` on a fresh checkout.
 
 Run `uv run vrc config` to inspect the resolved configuration. Credentials are
 redacted from its output.
