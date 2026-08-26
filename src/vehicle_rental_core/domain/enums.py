@@ -24,7 +24,8 @@ class Sex(StrEnum):
 class VehicleStatus(StrEnum):
     """Lifecycle state of a vehicle.
 
-    ``RETIRED`` is terminal and keeps the row and its rental history.
+    ``RETIRED`` is terminal: the vehicle leaves service but its row and rental
+    history stay, unlike deleting it.
     """
 
     AVAILABLE = "available"
