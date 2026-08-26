@@ -314,6 +314,42 @@ src/vehicle_rental_core/
 - **Purposeful indexes:** status filtering, active-rental lookup, and newest-first rental
   history match the service's actual query patterns.
 
+### Why PostgreSQL
+
+The domain is relational in the strict sense: three entities joined by foreign keys,
+invariants that span rows, and operations that must change several rows atomically —
+starting a rental updates the vehicle *and* inserts the rental, or does neither. A
+document store would turn each of those guarantees into application code, and
+application code cannot hold a guarantee under concurrent requests. That rules out
+MongoDB here regardless of its other merits.
+
+The schema is not merely *compatible* with PostgreSQL; it is built on what
+PostgreSQL provides:
+
+| Feature | Where it is used | Why it matters |
+| --- | --- | --- |
+| **Partial unique index** | `uq_rentals_one_active_per_vehicle … WHERE end_at IS NULL` | Makes "at most one open rental per vehicle" a guarantee the database holds, and holds under concurrent requests, rather than a rule the application has to remember |
+| **CHECK constraints** | `(status = 'retired') = (retired_at IS NOT NULL)`, plus every enum column | `status` and `retired_at` cannot drift out of agreement, and an enum column rejects anything outside its set — whichever client writes the row |
+| **`timestamptz`** | all nine timestamp columns, including `retired_at` and the rental period | Stores an instant rather than a wall-clock reading, so a rental period stays correct across timezones and DST boundaries |
+| **Native `uuid`** | all three primary keys, and the foreign keys that reference them | A real 16-byte type with its own operators and indexing, so ids need no encoding or decoding at the boundary |
+| **FK actions** | `ON DELETE CASCADE` on rentals→vehicle, `ON DELETE SET NULL` on rentals→customer | The two deletion policies are declared in the schema, so they hold no matter which client issues the delete |
+| **Transactional DDL** | every Alembic migration | A revision runs inside a transaction, so a step that fails rolls the whole migration back instead of leaving the schema half-applied |
+
+**Headroom, not current usage.** The following are reasons to expect PostgreSQL to
+keep fitting as the data grows; none are used today, and the schema needs none of
+them at this size:
+
+- **Partitioning `rentals` by `start_at`.** The table is append-heavy and
+  time-ordered — the textbook case. Old periods can be detached rather than deleted,
+  which is also the natural home for the retention policy that bounds retired vehicles.
+- **`JSONB` with a `GIN` index** for attributes that do not deserve columns — optional
+  equipment, telemetry, provider payloads — queryable without a migration per field.
+- **`BRIN` indexes** for the same time-ordered history at a fraction of a B-tree's size,
+  and **`CREATE INDEX CONCURRENTLY`** to add indexes without locking writes.
+
+The point of listing them is that none require a different database later: the schema
+can expand into them in place.
+
 ## Tests and quality checks
 
 Run the unit test suite with coverage:
