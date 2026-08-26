@@ -9,6 +9,7 @@ from vehicle_rental_core.infrastructure.db.base import Base
 from vehicle_rental_core.infrastructure.db.mixins import TimestampMixin
 
 if TYPE_CHECKING:
+    from vehicle_rental_core.infrastructure.models.customer import CustomerModel
     from vehicle_rental_core.infrastructure.models.vehicle import VehicleModel
 
 
@@ -33,6 +34,8 @@ class RentalModel(TimestampMixin, Base):
         ),
         # Vehicle rental history and FK-related lookups, newest first.
         Index("ix_rentals_vehicle_start_at", "vehicle_id", text("start_at DESC")),
+        # Customer rental history, and the lookup the FK's SET NULL performs.
+        Index("ix_rentals_customer_id", "customer_id"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -44,6 +47,16 @@ class RentalModel(TimestampMixin, Base):
         ForeignKey("vehicles.id", ondelete="CASCADE"), nullable=False
     )
 
+    # SET NULL, deliberately unlike vehicle_id's CASCADE above: a rental
+    # without its vehicle is meaningless, but a rental without its customer is
+    # still valid history.
+    customer_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("customers.id", ondelete="SET NULL"), nullable=True
+    )
+
+    # A snapshot taken when the rental started, not denormalisation to tidy up
+    # later. It is what survives the customer being deleted, and it deliberately
+    # does not follow a rename — the rental records who rented, as they were.
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
 
     start_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -52,3 +65,4 @@ class RentalModel(TimestampMixin, Base):
     )
 
     vehicle: Mapped[VehicleModel] = relationship(back_populates="rentals")
+    customer: Mapped[CustomerModel | None] = relationship(back_populates="rentals")
