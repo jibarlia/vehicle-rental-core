@@ -22,6 +22,12 @@ app.add_typer(rental_commands.app, name="rental")
 app.command(name="seed")(seed_commands.seed)
 
 
+@app.callback()
+def configure() -> None:
+    """Runs before every command, so in-process work such as ``seed`` logs."""
+    configure_logging(get_settings())
+
+
 @app.command()
 def serve(
     host: str | None = typer.Option(None, help="Override API_HOST."),
@@ -52,7 +58,6 @@ async def _ping_database(settings: Settings) -> None:
 def healthcheck() -> None:
     """Verify the configured database is reachable."""
     settings = get_settings()
-    configure_logging(settings)
     try:
         asyncio.run(_ping_database(settings))
     except Exception as exc:
