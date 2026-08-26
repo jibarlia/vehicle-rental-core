@@ -145,19 +145,28 @@ return `404`, state conflicts return `409`, and invalid input returns `422`.
 }
 ```
 
-Two things are worth knowing about the shape:
+Three things are worth knowing about the shape:
 
-- **`counts` and `total` describe the whole fleet.** They are unaffected by
-  `status`, `offset` and `limit`, which page `items` alone, and every status is
-  present even at zero — so a dashboard can render a fixed set of tiles without
-  walking the table. Retired vehicles are counted under their own status even
-  though `items` hides them, because a tally that omitted them would not add up.
+- **`counts` describes the whole fleet.** It is unaffected by `status`, `offset`
+  and `limit`, and every status is present even at zero — so a dashboard can
+  render a fixed set of tiles without walking the table.
+- **`total` describes the current query**: how many vehicles match `status`, and
+  so how many rows `items` yields across every page. Under no filter it is the
+  whole fleet; under `?status=in_use` it is the in-use count. It is derived from
+  `counts`, so it costs no extra query.
 - **`items` is always one page**, `limit` capped at 100. Grouping is done by
   filtering: `?status=in_use` is the group, paginated on its own.
 
 A vehicle that is out carries the rental explaining it, which saves a caller from
 asking each vehicle in turn. Rows are a deliberate subset of `GET /vehicles` — the
 fields a board displays and no more; the full record is a `GET /vehicles/{id}` away.
+
+Both listings return **every** vehicle, retired ones included. A collection
+endpoint that quietly withheld part of the collection would leave a caller no way
+to request the whole thing and no way to notice anything was missing; narrowing
+is the caller's to ask for, with `?status=`. Retired vehicles accumulate, so
+bounding them is a retention concern rather than something the read path should
+decide on a caller's behalf.
 
 ### CLI
 
