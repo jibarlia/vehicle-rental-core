@@ -1,6 +1,8 @@
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
+from typing import Any
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -50,3 +52,40 @@ async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
+
+
+@pytest.fixture
+def stub_api(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[httpx.Request]]:
+    """Stub the CLI's HTTP boundary and record what it sent.
+
+    Returns an installer: call it with the response the API should give (or an
+    exception it should raise), and it hands back the list the requests land in.
+    No socket is opened — httpx.MockTransport stands in for the network.
+    """
+
+    def install(
+        response: httpx.Response | None = None,
+        *,
+        raises: Exception | None = None,
+    ) -> list[httpx.Request]:
+        seen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            if raises is not None:
+                raise raises
+            assert response is not None
+            return response
+
+        def fake_request(method: str, url: str, **kwargs: Any) -> httpx.Response:
+            # timeout is a real-transport concern the mock does not accept.
+            kwargs.pop("timeout", None)
+            with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+                return client.request(method, url, **kwargs)
+
+        # Patched on httpx itself: _client does `import httpx` and calls
+        # httpx.request, so the module attribute is the seam.
+        monkeypatch.setattr(httpx, "request", fake_request)
+        return seen
+
+    return install

@@ -1,340 +1,325 @@
-# vehicle-rental-core
+# Vehicle Rental Core
 
-Production-ready vehicle rental management service built with Python and FastAPI. Manages vehicles, rentals, availability, and maintenance using PostgreSQL, clean architecture, observability, automated testing, Docker, and extensible messaging
+A production-minded FastAPI service for managing vehicles, customers, and rentals.
 
-## Architecture
+## Quick start
 
-```mermaid
-flowchart LR
-    User["Internal user"] --> API["FastAPI REST API"]
-    User --> CLI["Typer CLI"]
-
-    API --> App["Application use cases"]
-    CLI --> App
-
-    App --> Domain["Domain rules and entities"]
-    App --> UOW["Unit of Work and repositories"]
-    UOW --> DB[("PostgreSQL")]
-
-    UOW --> Outbox["Outbox events in same transaction"]
-    Outbox --> Relay["Outbox publisher"]
-    Relay --> MQ["RabbitMQ"]
-    MQ --> Consumer["Audit/event consumer"]
-    Consumer --> Audit[("Audit projection")]
-
-    API --> Obs["Logs, metrics, health checks"]
-    Relay --> Obs
-    Consumer --> Obs
-```
-
-## Stack
-
-| Concern | Choice |
-| --- | --- |
-| Runtime | Python 3.14 |
-| Packaging | uv with `pyproject.toml` and a committed `uv.lock` |
-| API | FastAPI + Uvicorn |
-| Console | Typer (`vrc`) |
-| Config | Pydantic + pydantic-settings |
-| Persistence | SQLAlchemy 2.x (async) + psycopg 3 + PostgreSQL |
-| Migrations | Alembic (async `env.py`) |
-| Tests | pytest, pytest-asyncio, HTTPX, pytest-cov |
-| Lint / format | Ruff (+ pre-commit) |
-| Types | mypy (`strict`) |
-| Metrics | prometheus-client |
-| Runtime packaging | Docker + Docker Compose |
-
-Everything is **async end to end** — FastAPI routes, SQLAlchemy sessions, and
-repositories are all `async`, since this service spends most of its time waiting on
-Postgres and RabbitMQ. Typer stays synchronous and crosses the boundary with a single
-`asyncio.run()` per command.
-
-## Project Structure
-
-```txt
-src/vehicle_rental_core/
-├── main.py                   # ASGI entrypoint (uvicorn target)
-├── api/
-│   ├── app.py                # create_app() factory, lifespan, middleware
-│   ├── dependencies.py       # DI providers: services, repositories, session
-│   ├── errors.py             # domain error -> HTTP status mapping
-│   └── routers/              # health, metrics, vehicles, rentals
-├── cli/                      # Typer console: serve, healthcheck, config, db
-├── core/
-│   ├── config.py             # pydantic-settings Settings
-│   └── observability/        # logging, prometheus metrics
-├── domain/                   # Vehicle, Rental, enums, errors — no I/O, no ORM
-├── application/              # VehicleService, RentalService, clock
-├── schemas/                  # VehicleCreate/Update/Read, Rental*
-└── infrastructure/
-    ├── db/                   # Base, async engine, TimestampMixin
-    ├── models/               # VehicleModel, RentalModel
-    └── repositories/         # data access + domain<->ORM mappers
-migrations/                   # Alembic (async env.py)
-tests/                        # unit test suite (no database)
-```
-
-Dependencies point inward: `api → application → domain`, with `infrastructure`
-implementing persistence. The domain layer imports neither FastAPI nor SQLAlchemy.
-
-## Domain Model
-
-### Why `vehicles` and not `cars`
-
-The requested entity was a *cars* table. It is deliberately generalised to
-**`vehicles`**, with the distinction carried by a `vehicle_type` column whose only
-member today is `car`. Motorcycles, vans and trucks then arrive as an additive change —
-a new enum member plus a migration widening one check constraint — instead of a table
-rename that would break every foreign key, index, route and payload already in
-production. The cost today is one column; the cost of renaming later is a migration
-across the whole system.
-
-### Naming
-
-| Element | Convention |
-|---|---|
-| Domain entity | `Vehicle`, `Rental` |
-| SQLAlchemy model | `VehicleModel`, `RentalModel` |
-| Database table | `vehicles`, `rentals` |
-| API endpoint | `/vehicles`, `/rentals` |
-| Foreign key | `vehicle_id` |
-| Pydantic schema | `VehicleCreate`, `VehicleUpdate`, `VehicleRead` |
-
-Singular for Python types, plural for database tables and API collections.
-
-### `vehicles`
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | UUID | primary key |
-| `vehicle_type` | enum | `car`; expandable |
-| `registration_number` | varchar(32) | unique, indexed |
-| `model` | varchar(128) | |
-| `year` | integer | |
-| `status` | enum | `available`, `in_use`, `maintenance`, `retired` |
-| `retired_at` | timestamptz, null | set exactly when `status = retired` |
-| `version` | integer | optimistic locking |
-| `created_at` / `updated_at` | timestamptz | database-side, via `TimestampMixin` |
-
-### `rentals`
-
-| Column | Type | Notes |
-|---|---|---|
-| `id` | UUID | primary key |
-| `vehicle_id` | UUID | FK → `vehicles.id`, `ON DELETE CASCADE` |
-| `customer_name` | varchar(255) | |
-| `start_at` | timestamptz | |
-| `end_at` | timestamptz, null | **`NULL` means the rental is active** |
-| `created_at` / `updated_at` | timestamptz | database-side, via `TimestampMixin` |
-
-### Invariants
-
-Each rule is enforced by the database, not only by application code, so concurrent
-requests cannot slip between a check and a write:
-
-| Rule | Enforced by |
-|---|---|
-| `end_at >= start_at` | `ck_rentals_end_at_after_start_at` |
-| Registration number is unique | `ix_vehicles_registration_number` (unique) |
-| Only one active rental per vehicle | `uq_rentals_one_active_per_vehicle` (partial unique) |
-| `status = retired` ⟺ `retired_at IS NOT NULL` | `ck_vehicles_retired_status_matches_timestamp` |
-| Retired vehicles excluded from the fleet listing | repository filters `status <> 'retired'` |
-| Active rental blocks retiring and maintenance | `Vehicle.ensure_can_release`, checked in the service |
-| Retiring is terminal | `Vehicle.ensure_mutable`, checked in the service |
-| A retired vehicle cannot be rented | `Vehicle.is_rentable` requires `status = available` |
-
-### Retiring a vehicle
-
-**Retiring is the only supported way to take a vehicle out of service**, and the only
-one reachable from the API. It keeps the row, the rental history and the registration
-number.
-
-A hard `DELETE` is a different operation with different semantics: it **cascades** and
-takes the vehicle's rentals with it. That is deliberate — a rental row whose vehicle no
-longer exists is a `vehicle_id` pointing at nothing, and durable history belongs in the
-audit projection (which stores the vehicle denormalised as JSON), not in a dangling
-operational row. Because it destroys records, there is no endpoint for it.
-
-> The audit projection does not exist yet. Until the outbox lands, a hard `DELETE` is
-> unrecoverable — which is another reason it is SQL-only.
-
-`status` and `retired_at` are kept in lockstep by a check constraint, so no query ever
-has to decide which of the two is authoritative. Every route into a status change goes
-through `Vehicle.change_status`, so a direct field assignment cannot skip the
-active-rental guard or leave the two out of step.
-
-The partial unique index is what makes "one active rental" safe. Because it is scoped to
-`WHERE end_at IS NULL`, a vehicle may accumulate any number of *ended* rentals while
-holding at most one open rental:
-
-```sql
-CREATE UNIQUE INDEX uq_rentals_one_active_per_vehicle
-ON rentals (vehicle_id)
-WHERE end_at IS NULL;
-```
-
-The service checks availability first for a clean `409`, then translates a violation of
-this index into the same `409` if another transaction wins the race.
-
-### Indexes
-
-```sql
--- Required status-filter operation
-CREATE INDEX ix_vehicles_status ON vehicles (status);
-
--- Vehicle rental history and FK-related lookups
-CREATE INDEX ix_rentals_vehicle_start_at ON rentals (vehicle_id, start_at DESC);
-
--- Integrity plus fast active-rental lookup
-CREATE UNIQUE INDEX uq_rentals_one_active_per_vehicle
-ON rentals (vehicle_id) WHERE end_at IS NULL;
-```
-
-`ix_rentals_vehicle_start_at` is ordered `DESC` to match how history is read — newest
-first — so the index serves the query without a sort.
-
-### Enums as check constraints
-
-`vehicle_type` and `status` are stored as `VARCHAR` guarded by a `CHECK`, not as native
-PostgreSQL enum types. Adding `motorcycle` is then an ordinary constraint swap inside a
-normal migration, with none of the `ALTER TYPE ... ADD VALUE` restrictions a native enum
-imposes.
-
-The CHECK constraints are declared explicitly via `enum_check`, **not** through
-`Enum(create_constraint=True)`. The implicit form builds the constraint when the DDL is
-emitted, so it never appears in the metadata Alembic compares against — present in the
-database, absent from the diff, and therefore reported as removed on every revision.
-Autogenerate then emits a `drop_constraint` that silently deletes the validation.
-Declaring it explicitly also means adding an enum member autogenerates the constraint
-swap, which the implicit form never would.
-
-## API
-
-| Method | Path | Notes |
-|---|---|---|
-| `POST` | `/vehicles` | `409` if the registration number exists |
-| `GET` | `/vehicles` | paginated; excludes retired unless `?status=retired` |
-| `GET` | `/vehicles/{vehicle_id}` | retired vehicles remain readable |
-| `PATCH` | `/vehicles/{vehicle_id}` | `409` if maintenance is blocked by an active rental |
-| `POST` | `/vehicles/{vehicle_id}/retire` | retire; `409` while a rental is active or already retired |
-| `GET` | `/vehicles/{vehicle_id}/rentals` | rental history, newest first |
-| `POST` | `/rentals` | start a rental; `409` if the vehicle is unavailable |
-| `GET` | `/rentals/{rental_id}` | |
-| `POST` | `/rentals/{rental_id}/complete` | close a rental and release the vehicle |
-
-Domain errors map to status codes in one place ([api/errors.py](src/vehicle_rental_core/api/errors.py)):
-`NotFoundError → 404`, `ConflictError → 409`, `ValidationError → 422`.
-
-## Quick Start (Docker)
+Run the complete application with Docker:
 
 ```bash
 docker compose up --build
 ```
 
-Postgres starts and becomes healthy, `migrate` runs `vrc db upgrade` to completion, then
-the API boots. Then open:
+Docker Compose starts PostgreSQL, applies the Alembic migrations, and starts the API
+only after its dependencies are ready.
 
-- Swagger UI: http://localhost:8000/docs
-- Liveness: http://localhost:8000/health
-- Readiness: http://localhost:8000/health/ready
-- Metrics: http://localhost:8000/metrics
+- API documentation: <http://localhost:8000/docs>
+- Liveness check: <http://localhost:8000/health>
+- Readiness check: <http://localhost:8000/health/ready>
+- Prometheus metrics: <http://localhost:8000/metrics>
 
-## Local Setup
+Stop the application with:
 
 ```bash
-uv sync --all-groups        # creates .venv from uv.lock, installs dev tools
+docker compose down
+```
+
+## Local development
+
+Requirements: Python 3.14, [uv](https://docs.astral.sh/uv/), and PostgreSQL 14+ —
+either the Docker container from `docker-compose.yml` or an installation on your
+machine.
+
+### 1. Install the project
+
+```bash
+uv sync --all-groups
 cp .env.example .env
-uv run pre-commit install   # one-time: enable git hooks
+uv run pre-commit install
 ```
 
-Start a database, apply migrations, and serve:
+`uv sync` creates the virtual environment and installs the exact dependency versions
+recorded in `uv.lock`.
+
+### 2. Provide a database
+
+`vrc db upgrade` creates the *tables*, not the database itself, so an empty
+`vehicle_rental` database has to exist before it runs. Pick one of the two options
+below.
+
+**Option A — PostgreSQL in Docker**
 
 ```bash
-docker compose up postgres -d
+docker compose up -d postgres
+```
+
+The container creates the `vehicle_rental` database and the `postgres` role on first
+start and publishes them on host port **55432**, which is what `.env.example` already
+points at. Nothing else to configure.
+
+**Option B — a PostgreSQL installed on your machine**
+
+Create the database once:
+
+```bash
+createdb vehicle_rental
+```
+
+Then point `DATABASE_URL` in `.env` at your server. A local installation listens on the
+default port **5432**, and its credentials are your own rather than the container's
+`postgres:postgres`:
+
+```env
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/vehicle_rental
+```
+
+If the installation has no `postgres` role, either connect as your OS user
+(`postgresql+psycopg://$(whoami)@localhost:5432/vehicle_rental`) or create the role once
+so the URL matches the container's:
+
+```bash
+psql -d postgres -c "CREATE ROLE postgres LOGIN SUPERUSER PASSWORD 'postgres';"
+```
+
+### 3. Migrate and run
+
+Identical for both options:
+
+```bash
+uv run vrc db upgrade      # apply the Alembic migrations
+uv run vrc healthcheck     # confirm the API can reach the database
+uv run vrc serve --reload  # run the application
+```
+
+VS Code equivalents live in [`.vscode/launch.json`](.vscode/launch.json): **DB: upgrade**
+applies the migrations, **Healthcheck** verifies the connection, and **API (reload)** or
+**API + Swagger** starts the server. They all load `.env`, so they follow whichever
+option you configured above.
+
+## Using the application
+
+### REST API
+
+The interactive Swagger UI at <http://localhost:8000/docs> is the easiest way to
+explore and call the API.
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| `POST` | `/vehicles` | Add a vehicle to the fleet |
+| `GET` | `/vehicles` | List vehicles, optionally filtered by `status` |
+| `GET` | `/vehicles/{vehicle_id}` | Get a vehicle |
+| `PATCH` | `/vehicles/{vehicle_id}` | Update its details or status |
+| `POST` | `/vehicles/{vehicle_id}/retire` | Permanently retire it from service |
+| `GET` | `/vehicles/{vehicle_id}/rentals` | List its rental history |
+| `POST` | `/customers` | Register a customer |
+| `GET` | `/customers` | List customers |
+| `GET` | `/customers/{customer_id}` | Get a customer |
+| `PATCH` | `/customers/{customer_id}` | Update a customer |
+| `DELETE` | `/customers/{customer_id}` | Delete a customer while preserving rental history |
+| `POST` | `/rentals` | Start a rental |
+| `GET` | `/rentals/{rental_id}` | Get a rental |
+| `POST` | `/rentals/{rental_id}/complete` | Complete a rental and release the vehicle |
+
+Domain failures are translated consistently at the API boundary: missing resources
+return `404`, state conflicts return `409`, and invalid input returns `422`.
+
+### CLI
+
+`vrc` provides operational commands and an HTTP client for the API:
+
+```bash
+uv run vrc vehicle add -r IL-12345 -m Corolla -y 2024
+uv run vrc vehicle list
+uv run vrc vehicle list --status available
+
+uv run vrc rental start --vehicle-id VEHICLE_UUID --customer-id CUSTOMER_UUID
+uv run vrc rental end RENTAL_UUID
+```
+
+Useful development and database commands:
+
+```bash
+uv run vrc seed --vehicles 20 --customers 10 --rentals 15
+uv run vrc healthcheck
+uv run vrc config
+
 uv run vrc db upgrade
-uv run vrc serve --reload
+uv run vrc db current
+uv run vrc db history
+uv run vrc db downgrade -1
 ```
 
-`uv sync` is the only install step — `uv.lock` is committed, so every environment and the
-Docker build resolve to byte-identical dependency versions.
-
-## Console (`vrc`)
-
-```bash
-uv run vrc serve --reload         # run the API
-uv run vrc healthcheck            # verify the database is reachable
-uv run vrc config                 # print resolved settings (password redacted)
-
-uv run vrc db upgrade             # apply migrations
-uv run vrc db revision -m "cars"  # autogenerate a migration from the models
-uv run vrc db downgrade -1        # revert one migration
-uv run vrc db current             # show the applied revision
-uv run vrc db history             # show the migration history
-```
-
-`vrc db` reads the database URL from settings rather than `alembic.ini`, so the API, the
-CLI, and the migrations can never drift onto different databases.
-
-VS Code launch configurations for the API (with Swagger auto-open), the CLI, and pytest
-live in [.vscode/launch.json](.vscode/launch.json).
+Vehicle and rental commands call the REST API. Seeding runs directly through the
+application services so it can generate data without a running API while still
+respecting the same business rules.
 
 ## Configuration
 
-All configuration flows through `Settings` in
-[src/vehicle_rental_core/core/config.py](src/vehicle_rental_core/core/config.py). Nothing
-else reads `os.environ`. Values come from environment variables first, then `.env` — see
-[.env.example](.env.example) for the full list.
+Configuration is validated in one place with Pydantic Settings. Environment variables
+take precedence over `.env`; the common local values and defaults are documented in
+[`.env.example`](.env.example).
 
-`DATABASE_URL` must carry an async driver: `postgresql+psycopg://...`.
+The API, CLI, and migrations all use the same `DATABASE_URL`. It must select an async
+driver — psycopg 3:
 
-## Tests
+```env
+# Docker Compose publishes PostgreSQL on host port 55432
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:55432/vehicle_rental
 
-```bash
-uv run pytest                          # with coverage
-uv run pytest --cov-report=html        # then open htmlcov/index.html
+# A PostgreSQL installed on your machine listens on 5432
+DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/vehicle_rental
 ```
 
-**These are unit tests only — nothing touches a database.** Every collaborator is
-mocked: the `get_session` dependency yields an `AsyncMock(spec=AsyncSession)`, and
-HTTPX's `ASGITransport` drives the app in-process, so no engine is ever built and no
-socket is ever opened. The whole suite runs in well under a second with no services
-running.
+The port is the only difference between the two, and it is the usual cause of a
+`connection refused` on a fresh checkout.
 
-That means PostgreSQL is the *only* dialect the production code knows about —
-`create_engine` has no branching for a test backend, because there isn't one.
+Run `uv run vrc config` to inspect the resolved configuration. Credentials are
+redacted from its output.
 
-Integration tests against a real Postgres arrive with the car and rental entities, when
-there is schema and SQL worth exercising. They belong in a separate suite so the unit
-tests stay instant and dependency-free.
+## Architecture
 
-## Quality Gates
+The current implementation is a layered modular service. HTTP requests remain
+request-response operations; asynchronous Python and database I/O improve concurrency
+without making the business workflow event-driven.
+
+```mermaid
+flowchart TB
+    User["Internal user or operator"]
+
+    subgraph Interfaces["Interfaces"]
+        API["FastAPI REST API"]
+        CLI["Typer CLI"]
+    end
+
+    subgraph Application["Application layer"]
+        Services["Vehicle, customer, and rental use cases"]
+    end
+
+    subgraph Domain["Domain layer"]
+        Rules["Entities, validation, and state transitions"]
+    end
+
+    subgraph Infrastructure["Infrastructure layer"]
+        Repositories["Async SQLAlchemy repositories"]
+        Migrations["Alembic migrations"]
+        Observability["Logging, metrics, and health checks"]
+    end
+
+    Database[("PostgreSQL")]
+
+    User --> API
+    User --> CLI
+    CLI -->|"vehicle and rental commands"| API
+    API --> Services
+    CLI -->|"seed command"| Services
+    Services --> Rules
+    Services --> Repositories
+    Repositories --> Database
+    CLI -->|"database commands"| Migrations
+    Migrations --> Database
+    API -.-> Observability
+    CLI -.-> Observability
+```
+
+- **API:** validates the HTTP contract and maps domain errors to responses.
+- **Application:** coordinates use cases and owns transaction boundaries.
+- **Domain:** contains entities and business rules without FastAPI, SQLAlchemy, or I/O.
+- **Infrastructure:** persists domain entities and integrates with PostgreSQL.
+
+```text
+src/vehicle_rental_core/
+├── api/              # FastAPI application, dependencies, and routers
+├── application/      # Use-case services, commands, and clock abstraction
+├── domain/           # Entities, enums, and business errors
+├── infrastructure/   # Database models, repositories, and mappings
+├── schemas/          # HTTP request and response models
+├── cli/              # Typer commands
+└── core/             # Configuration and observability
+```
+
+## Key business flows
+
+| Flow | What happens | Consistency guarantee |
+| --- | --- | --- |
+| Start a rental | Verify the vehicle and customer, snapshot the customer name, open the rental, and mark the vehicle `in_use` | Rental and vehicle update commit in one transaction; a partial unique index permits only one active rental per vehicle |
+| Complete a rental | Set its end time and return an `in_use` vehicle to `available` | Both changes commit in one transaction |
+| Retire a vehicle | Reject active rentals, set `status=retired`, and record `retired_at` | Retirement is terminal and the row and rental history remain available |
+| Delete a customer | Delete the customer record while retaining previous rentals | The customer foreign key becomes `NULL`; the snapshotted customer name preserves historical context |
+
+## Design decisions
+
+- **`vehicles`, not `cars`:** the current type is `car`, but the model can add
+  motorcycles, vans, or trucks without renaming tables, foreign keys, and endpoints.
+- **Consistent naming:** Python types are singular (`Vehicle`, `Rental`); database tables
+  and API collections are plural (`vehicles`, `/rentals`).
+- **Async I/O, synchronous workflow:** API routes and persistence are async, while each
+  user operation still returns a definitive success or failure in the same request.
+- **Retirement instead of deletion:** vehicles leave service without erasing their
+  identity or rental history. No hard-delete endpoint is exposed.
+- **History survives customer deletion:** rentals snapshot the customer's name when
+  they start, so later profile changes or deletion do not rewrite the past.
+- **Rules at two levels:** domain entities provide meaningful failures; PostgreSQL
+  constraints remain authoritative under concurrent requests.
+- **Concurrency protection:** registration numbers are unique, active rentals use a
+  partial unique index, and vehicle updates use optimistic locking through `version`.
+- **Purposeful indexes:** status filtering, active-rental lookup, and newest-first rental
+  history match the service's actual query patterns.
+
+## Tests and quality checks
+
+Run the unit test suite with coverage:
 
 ```bash
-uv run ruff check . --fix
-uv run ruff format .
+uv run pytest
+uv run pytest --cov-report=html
+```
+
+The unit suite is hermetic: it uses mocks and HTTPX's in-process ASGI transport and does
+not require PostgreSQL or network access.
+
+Run all static checks:
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
 uv run mypy
 uv run pre-commit run --all-files
 ```
 
-Ruff, mypy (`strict`), and a `uv-lock` freshness check all run as pre-commit hooks, so a
-`pyproject.toml` edit cannot land without a regenerated `uv.lock`.
-
 ## Observability
 
-- `GET /health` — liveness, touches no dependency.
-- `GET /health/ready` — readiness, returns 503 when Postgres is unreachable.
-- `GET /metrics` — Prometheus exposition. Request counters and latency histograms are
-  labelled with the **route template** (`/vehicles/{vehicle_id}`), never the concrete
-  URL, to keep metric cardinality bounded.
+- Standard Python logging with a single process-wide console format.
+- `GET /health` for liveness without touching external dependencies.
+- `GET /health/ready` for PostgreSQL readiness.
+- `GET /metrics` for Prometheus request counts and latency histograms.
+- Route-template metric labels such as `/vehicles/{vehicle_id}` keep cardinality
+  bounded.
+- The container health check and CLI health check use the same database-readiness
+  definition.
 
-The container `HEALTHCHECK` shells out to `vrc healthcheck`, so Docker and the service
-agree on what "healthy" means.
+## Technology stack
 
-## Next
+| Concern | Choice |
+| --- | --- |
+| Runtime | Python 3.14 |
+| API | FastAPI + Uvicorn |
+| CLI | Typer |
+| Validation and configuration | Pydantic + pydantic-settings |
+| Persistence | PostgreSQL + async SQLAlchemy 2.x + psycopg 3 |
+| Migrations | Alembic |
+| Tests | pytest, pytest-asyncio, HTTPX, pytest-cov |
+| Quality | Ruff, mypy strict, pre-commit |
+| Metrics | Prometheus client |
+| Packaging | uv, `pyproject.toml`, and a committed `uv.lock` |
+| Runtime packaging | Docker + Docker Compose |
 
-1. Integration tests against a real PostgreSQL, covering the repositories and the
-   constraints end to end. The current suite is unit-only and does not exercise SQL.
-2. Unit of Work to replace the session-per-request dependency and own the transaction
-   boundary that services currently hold.
-3. Transactional outbox plus the RabbitMQ publisher and audit consumer.
-4. Authentication and authorisation.
+## Roadmap
+
+1. Add integration tests against PostgreSQL for repositories, migrations, and database
+   constraints.
+2. Introduce a Unit of Work as the explicit transaction and repository boundary.
+3. Add a transactional outbox and RabbitMQ audit consumer if asynchronous messaging is
+   included in the final scope.
+4. Add authentication and authorization.
+5. Add configurable rotating file logging for standalone deployments.
+6. Add reproducible performance benchmarks and load-test baselines.

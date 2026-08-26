@@ -5,6 +5,9 @@ import uvicorn
 from sqlalchemy import text
 
 from vehicle_rental_core.cli import db as db_commands
+from vehicle_rental_core.cli import rental as rental_commands
+from vehicle_rental_core.cli import seed as seed_commands
+from vehicle_rental_core.cli import vehicle as vehicle_commands
 from vehicle_rental_core.core.config import Settings, get_settings
 from vehicle_rental_core.core.observability.logging import configure_logging
 from vehicle_rental_core.infrastructure.db import create_engine
@@ -14,6 +17,9 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(db_commands.app, name="db")
+app.add_typer(vehicle_commands.app, name="vehicle")
+app.add_typer(rental_commands.app, name="rental")
+app.command(name="seed")(seed_commands.seed)
 
 
 @app.command()

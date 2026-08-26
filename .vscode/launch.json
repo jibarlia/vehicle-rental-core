@@ -8,6 +8,7 @@
       "module": "uvicorn",
       "args": ["vehicle_rental_core.main:app", "--reload"],
       "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal",
       "justMyCode": true
     },
@@ -18,6 +19,7 @@
       "module": "uvicorn",
       "args": ["vehicle_rental_core.main:app", "--reload"],
       "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal",
       "justMyCode": true,
       "serverReadyAction": {
@@ -27,12 +29,47 @@
       }
     },
     {
+      "name": "DB: upgrade",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "vehicle_rental_core.cli.main",
+      "args": ["db", "upgrade"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "DB: current",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "vehicle_rental_core.cli.main",
+      "args": ["db", "current"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "Healthcheck",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "vehicle_rental_core.cli.main",
+      "args": ["healthcheck"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
       "name": "CLI: vrc",
       "type": "debugpy",
       "request": "launch",
       "module": "vehicle_rental_core.cli.main",
-      "args": ["${input:vrcArgs}"],
+      "args": "${input:vrcArgs}",
+      "argsCanBeInterpretedByShell": true,
       "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env",
       "console": "integratedTerminal",
       "justMyCode": false
     },
@@ -51,7 +88,7 @@
     {
       "id": "vrcArgs",
       "type": "promptString",
-      "description": "vrc arguments (e.g. db upgrade, healthcheck, config)",
+      "description": "vrc arguments (e.g. db upgrade, seed, healthcheck, config)",
       "default": "--help"
     }
   ]

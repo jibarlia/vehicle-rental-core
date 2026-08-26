@@ -44,9 +44,12 @@ def upgrade(revision: str = typer.Argument("head")) -> None:
     command.upgrade(_alembic_config(), revision)
 
 
-@app.command()
+# ignore_unknown_options so a leading-dash revision reaches us as an argument.
+# Alembic's own syntax for "one step back" is -1, which Click would otherwise
+# reject as an unknown option before the command ever runs.
+@app.command(context_settings={"ignore_unknown_options": True})
 def downgrade(revision: str = typer.Argument("-1")) -> None:
-    """Revert migrations down to REVISION."""
+    """Revert migrations down to REVISION (default: one step back)."""
     command.downgrade(_alembic_config(), revision)
 
 
