@@ -125,3 +125,25 @@ class TestCountByStatus:
         session.execute.return_value = result
 
         assert await repository.count_by_status() == {}
+
+
+class TestDelete:
+    async def test_should_issue_one_statement_without_loading_the_row(
+        self, repository: VehicleRepository, session: AsyncMock
+    ) -> None:
+        # No SELECT first: the service establishes existence for the 404.
+        await repository.delete(uuid4())
+
+        session.execute.assert_awaited_once()
+        session.flush.assert_awaited_once()
+
+    async def test_should_not_delete_the_rentals_itself(
+        self, repository: VehicleRepository, session: AsyncMock
+    ) -> None:
+        # The ON DELETE CASCADE does that, which is why the statement names
+        # only vehicles.
+        await repository.delete(uuid4())
+
+        sql = str(session.execute.await_args.args[0])
+        assert sql.startswith("DELETE FROM vehicles")
+        assert "rentals" not in sql

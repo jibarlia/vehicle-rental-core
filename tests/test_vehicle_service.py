@@ -175,6 +175,71 @@ class TestRetireVehicle:
         session.commit.assert_not_awaited()
 
 
+class TestDeleteVehicle:
+    async def test_should_delete_and_commit(
+        self,
+        service: VehicleService,
+        vehicle_repository: AsyncMock,
+        rental_repository: AsyncMock,
+        session: AsyncMock,
+    ) -> None:
+        vehicle = _vehicle()
+        vehicle_repository.get.return_value = vehicle
+        rental_repository.has_active_rental_for_vehicle.return_value = False
+
+        await service.delete(vehicle.id)
+
+        vehicle_repository.delete.assert_awaited_once_with(vehicle.id)
+        session.commit.assert_awaited_once()
+
+    async def test_should_refuse_deleting_while_a_rental_is_active(
+        self,
+        service: VehicleService,
+        vehicle_repository: AsyncMock,
+        rental_repository: AsyncMock,
+        session: AsyncMock,
+    ) -> None:
+        # The open rental would cascade away with the vehicle.
+        vehicle_repository.get.return_value = _vehicle()
+        rental_repository.has_active_rental_for_vehicle.return_value = True
+
+        with pytest.raises(VehicleHasActiveRentalError):
+            await service.delete(uuid4())
+
+        vehicle_repository.delete.assert_not_awaited()
+        session.commit.assert_not_awaited()
+
+    async def test_should_reject_an_unknown_vehicle(
+        self,
+        service: VehicleService,
+        vehicle_repository: AsyncMock,
+        session: AsyncMock,
+    ) -> None:
+        vehicle_repository.get.return_value = None
+
+        with pytest.raises(VehicleNotFoundError):
+            await service.delete(uuid4())
+
+        vehicle_repository.delete.assert_not_awaited()
+        session.commit.assert_not_awaited()
+
+    async def test_should_delete_a_retired_vehicle(
+        self,
+        service: VehicleService,
+        vehicle_repository: AsyncMock,
+        rental_repository: AsyncMock,
+    ) -> None:
+        # Retirement blocks changes; deleting erases the row rather than
+        # changing it, so the retired guard must not apply here.
+        retired = _vehicle(status=VehicleStatus.RETIRED, retired_at=NOW)
+        vehicle_repository.get.return_value = retired
+        rental_repository.has_active_rental_for_vehicle.return_value = False
+
+        await service.delete(retired.id)
+
+        vehicle_repository.delete.assert_awaited_once_with(retired.id)
+
+
 class TestMaintenanceTransition:
     async def test_should_refuse_maintenance_while_a_rental_is_active(
         self,
