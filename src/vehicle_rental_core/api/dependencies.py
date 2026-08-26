@@ -4,9 +4,13 @@ from typing import Annotated
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from vehicle_rental_core.application.customer_service import CustomerService
 from vehicle_rental_core.application.rental_service import RentalService
 from vehicle_rental_core.application.vehicle_service import VehicleService
 from vehicle_rental_core.core.config import Settings
+from vehicle_rental_core.infrastructure.repositories.customer_repository import (
+    CustomerRepository,
+)
 from vehicle_rental_core.infrastructure.repositories.rental_repository import (
     RentalRepository,
 )
@@ -55,8 +59,13 @@ def get_rental_repository(session: SessionDep) -> RentalRepository:
     return RentalRepository(session)
 
 
+def get_customer_repository(session: SessionDep) -> CustomerRepository:
+    return CustomerRepository(session)
+
+
 VehicleRepositoryDep = Annotated[VehicleRepository, Depends(get_vehicle_repository)]
 RentalRepositoryDep = Annotated[RentalRepository, Depends(get_rental_repository)]
+CustomerRepositoryDep = Annotated[CustomerRepository, Depends(get_customer_repository)]
 
 
 def get_vehicle_service(
@@ -71,9 +80,20 @@ def get_rental_service(
     session: SessionDep,
     rental_repository: RentalRepositoryDep,
     vehicle_repository: VehicleRepositoryDep,
+    customer_repository: CustomerRepositoryDep,
 ) -> RentalService:
-    return RentalService(session, rental_repository, vehicle_repository)
+    return RentalService(
+        session, rental_repository, vehicle_repository, customer_repository
+    )
+
+
+def get_customer_service(
+    session: SessionDep,
+    customer_repository: CustomerRepositoryDep,
+) -> CustomerService:
+    return CustomerService(session, customer_repository)
 
 
 VehicleServiceDep = Annotated[VehicleService, Depends(get_vehicle_service)]
 RentalServiceDep = Annotated[RentalService, Depends(get_rental_service)]
+CustomerServiceDep = Annotated[CustomerService, Depends(get_customer_service)]

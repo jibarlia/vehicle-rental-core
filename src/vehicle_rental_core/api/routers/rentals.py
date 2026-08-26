@@ -18,7 +18,7 @@ async def start_rental(
 ) -> RentalRead:
     rental = await rental_service.start(
         vehicle_id=payload.vehicle_id,
-        customer_name=payload.customer_name,
+        customer_id=payload.customer_id,
         start_at=payload.start_at,
     )
     return RentalRead.model_validate(rental)
