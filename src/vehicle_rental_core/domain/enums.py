@@ -12,6 +12,19 @@ class VehicleType(StrEnum):
     CAR = "car"
 
 
+class Sex(StrEnum):
+    """A customer's recorded sex.
+
+    ``UNSPECIFIED`` exists so the column can stay ``NOT NULL``: without it,
+    "not provided" would be a NULL *and* an absent member, giving two ways to
+    express the same thing and forcing every query to handle both.
+    """
+
+    MALE = "male"
+    FEMALE = "female"
+    UNSPECIFIED = "unspecified"
+
+
 class VehicleStatus(StrEnum):
     """Lifecycle state of a vehicle.
 

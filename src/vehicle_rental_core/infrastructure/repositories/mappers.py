@@ -4,8 +4,10 @@ Keeping this in one place is what lets the domain stay free of SQLAlchemy and
 the application layer never see a ``*Model``.
 """
 
+from vehicle_rental_core.domain.customer import Customer
 from vehicle_rental_core.domain.rental import Rental
 from vehicle_rental_core.domain.vehicle import Vehicle
+from vehicle_rental_core.infrastructure.models.customer import CustomerModel
 from vehicle_rental_core.infrastructure.models.rental import RentalModel
 from vehicle_rental_core.infrastructure.models.vehicle import VehicleModel
 
@@ -51,10 +53,41 @@ def apply_vehicle(model: VehicleModel, vehicle: Vehicle) -> None:
     model.retired_at = vehicle.retired_at
 
 
+def customer_to_domain(model: CustomerModel) -> Customer:
+    return Customer(
+        id=model.id,
+        name=model.name,
+        email=model.email,
+        date_of_birth=model.date_of_birth,
+        sex=model.sex,
+        created_at=model.created_at,
+        updated_at=model.updated_at,
+    )
+
+
+def customer_to_model(customer: Customer) -> CustomerModel:
+    return CustomerModel(
+        id=customer.id,
+        name=customer.name,
+        email=customer.email,
+        date_of_birth=customer.date_of_birth,
+        sex=customer.sex,
+    )
+
+
+def apply_customer(model: CustomerModel, customer: Customer) -> None:
+    """Copy mutable domain state onto a loaded model. Identity is fixed."""
+    model.name = customer.name
+    model.email = customer.email
+    model.date_of_birth = customer.date_of_birth
+    model.sex = customer.sex
+
+
 def rental_to_domain(model: RentalModel) -> Rental:
     return Rental(
         id=model.id,
         vehicle_id=model.vehicle_id,
+        customer_id=model.customer_id,
         customer_name=model.customer_name,
         start_at=model.start_at,
         end_at=model.end_at,
@@ -67,6 +100,7 @@ def rental_to_model(rental: Rental) -> RentalModel:
     return RentalModel(
         id=rental.id,
         vehicle_id=rental.vehicle_id,
+        customer_id=rental.customer_id,
         customer_name=rental.customer_name,
         start_at=rental.start_at,
         end_at=rental.end_at,
