@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -525,3 +526,95 @@ class TestFleetStatus:
         await service.fleet_status()
 
         session.commit.assert_not_awaited()
+
+
+class TestAuditLogging:
+    async def test_should_log_a_created_vehicle(
+        self,
+        service: VehicleService,
+        vehicle_repository: AsyncMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        vehicle_repository.get_by_registration_number.return_value = None
+        vehicle_repository.add.return_value = _vehicle()
+
+        created = await service.create(
+            registration_number="AA-111", model="Corolla", year=2022
+        )
+
+        record = caplog.records[-1]
+        assert record.message == "Vehicle created"
+        assert record.__dict__["vehicle_id"] == str(created.id)
+        assert record.__dict__["registration_number"] == "AA-111"
+
+    async def test_should_log_an_updated_vehicle_with_the_changed_fields(
+        self,
+        service: VehicleService,
+        vehicle_repository: AsyncMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        vehicle = _vehicle()
+        vehicle_repository.get.return_value = vehicle
+        vehicle_repository.update.return_value = vehicle
+
+        await service.update(vehicle.id, VehicleChanges(model="Yaris"))
+
+        record = caplog.records[-1]
+        assert record.message == "Vehicle updated"
+        assert record.__dict__["vehicle_id"] == str(vehicle.id)
+        assert record.__dict__["fields"] == ["model"]
+
+    async def test_should_log_a_retired_vehicle(
+        self,
+        service: VehicleService,
+        vehicle_repository: AsyncMock,
+        rental_repository: AsyncMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        vehicle = _vehicle()
+        vehicle_repository.get.return_value = vehicle
+        vehicle_repository.update.return_value = vehicle
+        rental_repository.has_active_rental_for_vehicle.return_value = False
+
+        await service.retire(vehicle.id)
+
+        record = caplog.records[-1]
+        assert record.message == "Vehicle retired"
+        assert record.__dict__["vehicle_id"] == str(vehicle.id)
+
+    async def test_should_log_a_deleted_vehicle(
+        self,
+        service: VehicleService,
+        vehicle_repository: AsyncMock,
+        rental_repository: AsyncMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        vehicle = _vehicle()
+        vehicle_repository.get.return_value = vehicle
+        rental_repository.has_active_rental_for_vehicle.return_value = False
+
+        await service.delete(vehicle.id)
+
+        record = caplog.records[-1]
+        assert record.message == "Vehicle deleted"
+        assert record.__dict__["vehicle_id"] == str(vehicle.id)
+
+    async def test_should_not_log_a_rejected_action(
+        self,
+        service: VehicleService,
+        vehicle_repository: AsyncMock,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        caplog.set_level(logging.INFO)
+        vehicle_repository.get_by_registration_number.return_value = _vehicle()
+
+        with pytest.raises(RegistrationNumberAlreadyExistsError):
+            await service.create(
+                registration_number="AA-111", model="Corolla", year=2022
+            )
+
+        assert caplog.records == []
