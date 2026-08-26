@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
@@ -5,11 +6,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from vehicle_rental_core.application.clock import Clock, utcnow
 from vehicle_rental_core.application.commands import VehicleChanges
+from vehicle_rental_core.application.views import FleetStatus, VehicleStatusEntry
 from vehicle_rental_core.domain.enums import VehicleStatus, VehicleType
 from vehicle_rental_core.domain.errors import (
     RegistrationNumberAlreadyExistsError,
     VehicleNotFoundError,
 )
+from vehicle_rental_core.domain.rental import Rental
 from vehicle_rental_core.domain.vehicle import Vehicle
 from vehicle_rental_core.infrastructure.repositories.rental_repository import (
     RentalRepository,
@@ -95,6 +98,60 @@ class VehicleService:
         return await self._vehicle_repository.list(
             status=status, offset=offset, limit=limit
         )
+
+    async def fleet_status(
+        self,
+        *,
+        status: VehicleStatus | None = None,
+        offset: int = 0,
+        limit: int = 20,
+    ) -> FleetStatus:
+        """One page of vehicles with their status, under whole-fleet counts.
+
+        Read-only: nothing here commits.
+
+        The counts are an aggregate over every row and ignore the filter and
+        the page, so the response stays a fixed size however large the fleet
+        grows — the page is what scales, and it is bounded by ``limit``.
+        """
+        vehicles = await self._vehicle_repository.list(
+            status=status, offset=offset, limit=limit
+        )
+        counts = await self._vehicle_repository.count_by_status()
+        # Absent statuses come back missing, not zero; filling them in here is
+        # what lets a client render a stable set of tiles instead of guessing
+        # whether a gap means "none" or "not reported".
+        complete_counts = {member: counts.get(member, 0) for member in VehicleStatus}
+
+        rentals_by_vehicle = await self._active_rentals_by_vehicle(vehicles)
+        entries = [
+            VehicleStatusEntry(
+                vehicle=vehicle,
+                current_rental=rentals_by_vehicle.get(vehicle.id),
+            )
+            for vehicle in vehicles
+        ]
+
+        return FleetStatus(
+            counts=complete_counts,
+            total=sum(complete_counts.values()),
+            entries=entries,
+        )
+
+    async def _active_rentals_by_vehicle(
+        self, vehicles: Sequence[Vehicle]
+    ) -> dict[UUID, Rental]:
+        """Open rentals for the vehicles that have one, keyed by vehicle.
+
+        Only ``IN_USE`` vehicles are asked about: for any other status there is
+        no open rental to find, so a wider query would return the same answer
+        and read more rows. A page with none skips the query altogether.
+        """
+        in_use_ids = [
+            vehicle.id for vehicle in vehicles if vehicle.status is VehicleStatus.IN_USE
+        ]
+        rentals = await self._rental_repository.list_active_for_vehicles(in_use_ids)
+        return {rental.vehicle_id: rental for rental in rentals}
 
     async def update(self, vehicle_id: UUID, changes: VehicleChanges) -> Vehicle:
         vehicle = await self.get(vehicle_id)
