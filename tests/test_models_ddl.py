@@ -9,6 +9,7 @@ from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.schema import CreateIndex, CreateTable
 
 from vehicle_rental_core.infrastructure.db.base import Base
+from vehicle_rental_core.infrastructure.models.customer import CustomerModel
 from vehicle_rental_core.infrastructure.models.rental import RentalModel
 from vehicle_rental_core.infrastructure.models.vehicle import VehicleModel
 
@@ -33,6 +34,7 @@ class TestTableNames:
     def test_tables_should_be_plural(self) -> None:
         assert VehicleModel.__tablename__ == "vehicles"
         assert RentalModel.__tablename__ == "rentals"
+        assert CustomerModel.__tablename__ == "customers"
 
 
 class TestVehicleIndexes:
@@ -108,3 +110,43 @@ class TestRentalConstraints:
 
     def test_end_at_should_be_nullable_because_null_means_active(self) -> None:
         assert RentalModel.__table__.c.end_at.nullable is True
+
+    def test_should_null_the_customer_fk_rather_than_delete_the_rental(self) -> None:
+        ddl = _create_table(RentalModel)
+
+        # Deliberately unlike the vehicle FK above: a rental without its
+        # customer is still valid history, so the row and its customer_name
+        # snapshot survive the customer being deleted.
+        assert "ON DELETE SET NULL" in ddl
+
+    def test_customer_id_should_be_nullable_but_the_name_should_not(self) -> None:
+        # The whole point of the snapshot: the id can go, the name cannot.
+        assert RentalModel.__table__.c.customer_id.nullable is True
+        assert RentalModel.__table__.c.customer_name.nullable is False
+
+
+class TestCustomerIndexes:
+    def test_email_should_be_uniquely_indexed(self) -> None:
+        ddl = _indexes(CustomerModel)["ix_customers_email"]
+
+        assert "CREATE UNIQUE INDEX" in ddl
+        assert "(email)" in ddl
+
+    def test_should_not_index_sex(self) -> None:
+        # A b-tree on a three-value column is not selective enough for the
+        # planner to choose it; adding one would cost writes for nothing.
+        assert "ix_customers_sex" not in _indexes(CustomerModel)
+
+
+class TestCustomerConstraints:
+    def test_should_constrain_sex_to_known_values(self) -> None:
+        ddl = _create_table(CustomerModel)
+
+        assert "ck_customers_sex" in ddl
+        assert "sex IN ('male', 'female', 'unspecified')" in ddl
+
+    def test_should_store_a_birth_date_rather_than_an_age(self) -> None:
+        # An age column would be wrong the day after it was written.
+        columns = CustomerModel.__table__.c
+        assert "date_of_birth" in columns
+        assert "age" not in columns

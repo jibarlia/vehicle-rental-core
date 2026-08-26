@@ -1,13 +1,17 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
-from vehicle_rental_core.domain.enums import VehicleStatus, VehicleType
+from vehicle_rental_core.domain.customer import Customer
+from vehicle_rental_core.domain.enums import Sex, VehicleStatus, VehicleType
 from vehicle_rental_core.domain.rental import Rental
 from vehicle_rental_core.domain.vehicle import Vehicle
 from vehicle_rental_core.infrastructure.models.rental import RentalModel
 from vehicle_rental_core.infrastructure.models.vehicle import VehicleModel
 from vehicle_rental_core.infrastructure.repositories.mappers import (
+    apply_customer,
     apply_vehicle,
+    customer_to_domain,
+    customer_to_model,
     rental_to_domain,
     rental_to_model,
     vehicle_to_domain,
@@ -92,6 +96,7 @@ class TestRentalMapping:
     def test_should_round_trip_every_field(self) -> None:
         original = Rental(
             vehicle_id=uuid4(),
+            customer_id=uuid4(),
             customer_name="Ada Lovelace",
             start_at=NOW,
             end_at=None,
@@ -101,6 +106,7 @@ class TestRentalMapping:
 
         assert restored.id == original.id
         assert restored.vehicle_id == original.vehicle_id
+        assert restored.customer_id == original.customer_id
         assert restored.customer_name == original.customer_name
         assert restored.start_at == original.start_at
         assert restored.end_at is None
@@ -126,5 +132,73 @@ class TestRentalMapping:
         )
 
         # created_at/updated_at come from server defaults, never from Python.
+        assert model.created_at is None
+
+    def test_should_keep_the_name_when_the_customer_id_is_gone(self) -> None:
+        # The state a deleted customer leaves behind: SET NULL wiped the id,
+        # the snapshot is all that remains.
+        orphaned = Rental(
+            vehicle_id=uuid4(),
+            customer_id=None,
+            customer_name="Ada Lovelace",
+            start_at=NOW,
+        )
+
+        restored = rental_to_domain(rental_to_model(orphaned))
+
+        assert restored.customer_id is None
+        assert restored.customer_name == "Ada Lovelace"
+
+
+class TestCustomerMapping:
+    def test_should_round_trip_every_field(self) -> None:
+        original = Customer(
+            name="Ada Lovelace",
+            email="ada@example.com",
+            date_of_birth=date(1990, 6, 1),
+            sex=Sex.FEMALE,
+        )
+
+        restored = customer_to_domain(customer_to_model(original))
+
+        assert restored.id == original.id
+        assert restored.name == original.name
+        assert restored.email == original.email
+        assert restored.date_of_birth == original.date_of_birth
+        assert restored.sex is Sex.FEMALE
+
+    def test_apply_should_copy_mutable_state_but_not_identity(self) -> None:
+        model = customer_to_model(
+            Customer(
+                name="Ada",
+                email="ada@example.com",
+                date_of_birth=date(1990, 6, 1),
+            )
+        )
+        original_id = model.id
+
+        apply_customer(
+            model,
+            Customer(
+                name="Grace Hopper",
+                email="grace@example.com",
+                date_of_birth=date(1906, 12, 9),
+                sex=Sex.FEMALE,
+            ),
+        )
+
+        assert model.name == "Grace Hopper"
+        assert model.email == "grace@example.com"
+        assert model.id == original_id
+
+    def test_model_should_not_carry_timestamps_the_database_owns(self) -> None:
+        model = customer_to_model(
+            Customer(
+                name="Ada",
+                email="ada@example.com",
+                date_of_birth=date(1990, 6, 1),
+            )
+        )
+
         assert model.created_at is None
         assert model.updated_at is None

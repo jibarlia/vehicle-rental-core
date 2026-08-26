@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -6,8 +6,10 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 
 from vehicle_rental_core.application.rental_service import RentalService
+from vehicle_rental_core.domain.customer import Customer
 from vehicle_rental_core.domain.enums import VehicleStatus
 from vehicle_rental_core.domain.errors import (
+    CustomerNotFoundError,
     RentalNotFoundError,
     VehicleHasActiveRentalError,
     VehicleNotFoundError,
@@ -15,6 +17,9 @@ from vehicle_rental_core.domain.errors import (
 )
 from vehicle_rental_core.domain.rental import Rental
 from vehicle_rental_core.domain.vehicle import Vehicle
+from vehicle_rental_core.infrastructure.repositories.customer_repository import (
+    CustomerRepository,
+)
 from vehicle_rental_core.infrastructure.repositories.rental_repository import (
     RentalRepository,
 )
@@ -36,11 +41,25 @@ def vehicle_repository() -> AsyncMock:
 
 
 @pytest.fixture
+def customer_repository() -> AsyncMock:
+    repository = AsyncMock(spec=CustomerRepository)
+    repository.get.return_value = _customer()
+    return repository
+
+
+@pytest.fixture
 def service(
-    session: AsyncMock, rental_repository: AsyncMock, vehicle_repository: AsyncMock
+    session: AsyncMock,
+    rental_repository: AsyncMock,
+    vehicle_repository: AsyncMock,
+    customer_repository: AsyncMock,
 ) -> RentalService:
     return RentalService(
-        session, rental_repository, vehicle_repository, clock=lambda: NOW
+        session,
+        rental_repository,
+        vehicle_repository,
+        customer_repository,
+        clock=lambda: NOW,
     )
 
 
@@ -51,6 +70,15 @@ def _vehicle(**overrides: object) -> Vehicle:
         "year": 2022,
     }
     return Vehicle(**{**defaults, **overrides})  # type: ignore[arg-type]
+
+
+def _customer(**overrides: object) -> Customer:
+    defaults: dict[str, object] = {
+        "name": "Ada Lovelace",
+        "email": "ada@example.com",
+        "date_of_birth": date(1990, 6, 1),
+    }
+    return Customer(**{**defaults, **overrides})  # type: ignore[arg-type]
 
 
 def _integrity_error(message: str) -> IntegrityError:
@@ -69,9 +97,7 @@ class TestStartRental:
         vehicle_repository.get.return_value = vehicle
         rental_repository.add.side_effect = lambda rental: rental
 
-        created = await service.start(
-            vehicle_id=vehicle.id, customer_name="Ada Lovelace"
-        )
+        created = await service.start(vehicle_id=vehicle.id, customer_id=uuid4())
 
         assert created.is_active is True
         assert created.start_at == NOW  # clock supplies the default
@@ -80,13 +106,47 @@ class TestStartRental:
         )
         session.commit.assert_awaited_once()
 
+    async def test_should_snapshot_the_customer_name_onto_the_rental(
+        self,
+        service: RentalService,
+        vehicle_repository: AsyncMock,
+        rental_repository: AsyncMock,
+        customer_repository: AsyncMock,
+    ) -> None:
+        # The name is copied, not referenced: this is what survives the
+        # customer being renamed or deleted later.
+        customer = _customer(name="Grace Hopper")
+        customer_repository.get.return_value = customer
+        vehicle_repository.get.return_value = _vehicle()
+        rental_repository.add.side_effect = lambda rental: rental
+
+        created = await service.start(vehicle_id=uuid4(), customer_id=customer.id)
+
+        assert created.customer_id == customer.id
+        assert created.customer_name == "Grace Hopper"
+
+    async def test_should_reject_an_unknown_customer(
+        self,
+        service: RentalService,
+        vehicle_repository: AsyncMock,
+        rental_repository: AsyncMock,
+        customer_repository: AsyncMock,
+    ) -> None:
+        vehicle_repository.get.return_value = _vehicle()
+        customer_repository.get.return_value = None
+
+        with pytest.raises(CustomerNotFoundError):
+            await service.start(vehicle_id=uuid4(), customer_id=uuid4())
+
+        rental_repository.add.assert_not_awaited()
+
     async def test_should_reject_an_unknown_vehicle(
         self, service: RentalService, vehicle_repository: AsyncMock
     ) -> None:
         vehicle_repository.get.return_value = None
 
         with pytest.raises(VehicleNotFoundError):
-            await service.start(vehicle_id=uuid4(), customer_name="Ada")
+            await service.start(vehicle_id=uuid4(), customer_id=uuid4())
 
     @pytest.mark.parametrize(
         "status",
@@ -105,7 +165,7 @@ class TestStartRental:
         vehicle_repository.get.return_value = _vehicle(status=status)
 
         with pytest.raises(VehicleNotRentableError):
-            await service.start(vehicle_id=uuid4(), customer_name="Ada")
+            await service.start(vehicle_id=uuid4(), customer_id=uuid4())
 
     async def test_should_translate_the_partial_index_violation_into_a_conflict(
         self,
@@ -122,7 +182,7 @@ class TestStartRental:
         )
 
         with pytest.raises(VehicleHasActiveRentalError):
-            await service.start(vehicle_id=uuid4(), customer_name="Ada")
+            await service.start(vehicle_id=uuid4(), customer_id=uuid4())
 
         session.rollback.assert_awaited_once()
 
@@ -138,7 +198,7 @@ class TestStartRental:
         )
 
         with pytest.raises(IntegrityError):
-            await service.start(vehicle_id=uuid4(), customer_name="Ada")
+            await service.start(vehicle_id=uuid4(), customer_id=uuid4())
 
 
 class TestCompleteRental:

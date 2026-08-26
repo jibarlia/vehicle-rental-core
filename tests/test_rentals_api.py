@@ -9,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 from vehicle_rental_core.api.dependencies import get_rental_service
 from vehicle_rental_core.application.rental_service import RentalService
 from vehicle_rental_core.domain.errors import (
+    CustomerNotFoundError,
     InvalidRentalPeriodError,
     RentalAlreadyEndedError,
     RentalNotFoundError,
@@ -19,6 +20,7 @@ from vehicle_rental_core.domain.rental import Rental
 
 NOW = datetime(2026, 6, 1, tzinfo=UTC)
 VEHICLE_ID = uuid4()
+CUSTOMER_ID = uuid4()
 
 
 @pytest.fixture
@@ -35,6 +37,7 @@ def client(app: FastAPI, rental_service: AsyncMock) -> AsyncClient:
 def _rental(**overrides: object) -> Rental:
     defaults: dict[str, object] = {
         "vehicle_id": VEHICLE_ID,
+        "customer_id": CUSTOMER_ID,
         "customer_name": "Ada Lovelace",
         "start_at": NOW,
         "created_at": NOW,
@@ -51,7 +54,7 @@ class TestStartRental:
 
         response = await client.post(
             "/rentals",
-            json={"vehicle_id": str(VEHICLE_ID), "customer_name": "Ada Lovelace"},
+            json={"vehicle_id": str(VEHICLE_ID), "customer_id": str(CUSTOMER_ID)},
         )
 
         assert response.status_code == 201
@@ -64,7 +67,7 @@ class TestStartRental:
 
         response = await client.post(
             "/rentals",
-            json={"vehicle_id": str(VEHICLE_ID), "customer_name": "Ada"},
+            json={"vehicle_id": str(VEHICLE_ID), "customer_id": str(CUSTOMER_ID)},
         )
 
         assert response.status_code == 409
@@ -77,19 +80,32 @@ class TestStartRental:
 
         response = await client.post(
             "/rentals",
-            json={"vehicle_id": str(VEHICLE_ID), "customer_name": "Ada"},
+            json={"vehicle_id": str(VEHICLE_ID), "customer_id": str(CUSTOMER_ID)},
         )
 
         assert response.status_code == 409
 
-    async def test_should_reject_a_blank_customer_name(
+    async def test_should_reject_a_malformed_customer_id(
         self, client: AsyncClient
     ) -> None:
         response = await client.post(
-            "/rentals", json={"vehicle_id": str(VEHICLE_ID), "customer_name": ""}
+            "/rentals", json={"vehicle_id": str(VEHICLE_ID), "customer_id": "nope"}
         )
 
         assert response.status_code == 422
+
+    async def test_should_return_404_for_an_unknown_customer(
+        self, client: AsyncClient, rental_service: AsyncMock
+    ) -> None:
+        rental_service.start.side_effect = CustomerNotFoundError("nope")
+
+        response = await client.post(
+            "/rentals",
+            json={"vehicle_id": str(VEHICLE_ID), "customer_id": str(CUSTOMER_ID)},
+        )
+
+        assert response.status_code == 404
+        assert response.json()["error"] == "CustomerNotFoundError"
 
 
 class TestCompleteRental:
