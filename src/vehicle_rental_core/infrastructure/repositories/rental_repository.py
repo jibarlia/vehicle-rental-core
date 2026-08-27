@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vehicle_rental_core.domain.errors import ConcurrentUpdateError
@@ -56,6 +56,15 @@ class RentalRepository:
             .limit(1)
         )
         return (await self._session.execute(statement)).first() is not None
+
+    async def count_active_rentals(self) -> int:
+        """How many rentals are open right now, across the whole table."""
+        statement = (
+            select(func.count())
+            .select_from(RentalModel)
+            .where(RentalModel.end_at.is_(None))
+        )
+        return (await self._session.execute(statement)).scalar_one()
 
     async def list_active_for_vehicles(
         self, vehicle_ids: Sequence[UUID]

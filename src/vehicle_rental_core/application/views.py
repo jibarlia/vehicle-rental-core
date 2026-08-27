@@ -27,3 +27,14 @@ class FleetStatus:
     counts: Mapping[VehicleStatus, int]
     total: int
     entries: Sequence[VehicleStatusEntry]
+
+
+@dataclass(frozen=True, slots=True)
+class FleetMetrics:
+    """Whole-fleet tallies for a metrics scrape: no page, no entities.
+
+    ``vehicle_counts`` carries every :class:`VehicleStatus`, zero-filled.
+    """
+
+    vehicle_counts: Mapping[VehicleStatus, int]
+    ongoing_rentals: int
