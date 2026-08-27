@@ -38,7 +38,8 @@ class CustomerRepository:
     async def list(self, *, offset: int = 0, limit: int = 20) -> list[Customer]:
         statement = (
             select(CustomerModel)
-            .order_by(CustomerModel.created_at.desc())
+            # id breaks created_at ties, keeping pages disjoint.
+            .order_by(CustomerModel.created_at.desc(), CustomerModel.id.desc())
             .offset(offset)
             .limit(limit)
         )

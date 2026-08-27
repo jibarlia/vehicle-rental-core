@@ -99,6 +99,19 @@ class TestList:
         assert "LIMIT 10" in sql
         assert "OFFSET 40" in sql
 
+    async def test_should_order_by_a_unique_tiebreaker(
+        self, repository: VehicleRepository, session: AsyncMock
+    ) -> None:
+        # Without it, rows sharing a created_at can repeat or vanish between
+        # pages, since OFFSET has no stable order to count into.
+        _empty_result(session)
+
+        await repository.list()
+
+        assert "ORDER BY vehicles.created_at DESC, vehicles.id DESC" in _executed_sql(
+            session
+        )
+
 
 class TestCountByStatus:
     async def test_should_map_the_grouped_rows_to_a_dict(

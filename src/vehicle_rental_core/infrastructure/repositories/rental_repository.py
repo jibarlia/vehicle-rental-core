@@ -87,11 +87,12 @@ class RentalRepository:
     async def list_for_vehicle(
         self, vehicle_id: UUID, *, offset: int = 0, limit: int = 20
     ) -> list[Rental]:
-        # Ordering matches ix_rentals_vehicle_start_at so the index serves it.
+        # Leads with ix_rentals_vehicle_start_at's columns so the index serves
+        # it; id then breaks ties, which start_at invites by being client-set.
         statement = (
             select(RentalModel)
             .where(RentalModel.vehicle_id == vehicle_id)
-            .order_by(RentalModel.start_at.desc())
+            .order_by(RentalModel.start_at.desc(), RentalModel.id.desc())
             .offset(offset)
             .limit(limit)
         )

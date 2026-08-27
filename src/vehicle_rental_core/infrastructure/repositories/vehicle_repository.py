@@ -53,8 +53,10 @@ class VehicleRepository:
         if status is not None:
             statement = statement.where(VehicleModel.status == status)
 
+        # id breaks created_at ties, without which OFFSET/LIMIT could repeat or
+        # drop a tied row across pages.
         statement = (
-            statement.order_by(VehicleModel.created_at.desc())
+            statement.order_by(VehicleModel.created_at.desc(), VehicleModel.id.desc())
             .offset(offset)
             .limit(limit)
         )

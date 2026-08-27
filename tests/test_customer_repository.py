@@ -29,6 +29,23 @@ def _missing_row(session: AsyncMock) -> None:
     session.execute.return_value = result
 
 
+class TestList:
+    async def test_should_order_by_a_unique_tiebreaker(
+        self, repository: CustomerRepository, session: AsyncMock
+    ) -> None:
+        # Rows sharing a created_at would otherwise repeat or vanish between
+        # pages, since OFFSET has no stable order to count into.
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = []
+        session.execute.return_value = result
+
+        await repository.list()
+
+        statement = session.execute.await_args.args[0]
+        sql = str(statement.compile(compile_kwargs={"literal_binds": True}))
+        assert "ORDER BY customers.created_at DESC, customers.id DESC" in sql
+
+
 class TestUpdate:
     async def test_should_reject_a_customer_whose_row_is_gone(
         self, repository: CustomerRepository, session: AsyncMock

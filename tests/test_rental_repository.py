@@ -66,6 +66,23 @@ class TestListActiveForVehicles:
         assert [rental.vehicle_id for rental in rentals] == [vehicle_id]
 
 
+class TestListForVehicle:
+    async def test_should_order_by_a_unique_tiebreaker(
+        self, repository: RentalRepository, session: AsyncMock
+    ) -> None:
+        # start_at is client-supplied, so two rentals can share one; the
+        # tiebreaker keeps OFFSET counting into a stable order.
+        result = MagicMock()
+        result.scalars.return_value.all.return_value = []
+        session.execute.return_value = result
+
+        await repository.list_for_vehicle(uuid4())
+
+        statement = session.execute.await_args.args[0]
+        sql = str(statement.compile(compile_kwargs={"literal_binds": True}))
+        assert "ORDER BY rentals.start_at DESC, rentals.id DESC" in sql
+
+
 class TestCountActiveRentals:
     async def test_should_count_only_rentals_without_an_end(
         self, repository: RentalRepository, session: AsyncMock
