@@ -1,8 +1,16 @@
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 
 from fastapi import FastAPI, Request, Response
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    Counter,
+    Gauge,
+    Histogram,
+    generate_latest,
+)
+
+from vehicle_rental_core.domain.enums import VehicleStatus
 
 REQUEST_COUNT = Counter(
     "http_requests_total",
@@ -16,6 +24,18 @@ REQUEST_LATENCY = Histogram(
     labelnames=("method", "path"),
 )
 
+# Gauges, not counters, so no _total suffix: these move down as well as up.
+FLEET_VEHICLES = Gauge(
+    "fleet_vehicles",
+    "Vehicles in the fleet, by status.",
+    labelnames=("status",),
+)
+
+FLEET_RENTALS_ONGOING = Gauge(
+    "fleet_rentals_ongoing",
+    "Rentals currently open.",
+)
+
 
 def _route_template(request: Request) -> str:
     """Label with the route template, not the concrete URL.
@@ -26,6 +46,19 @@ def _route_template(request: Request) -> str:
     route = request.scope.get("route")
     path = getattr(route, "path", None)
     return path if isinstance(path, str) else "__unmatched__"
+
+
+def set_fleet_gauges(
+    vehicle_counts: Mapping[VehicleStatus, int], ongoing_rentals: int
+) -> None:
+    """Publish the fleet tallies.
+
+    ``vehicle_counts`` must carry every status: a label that stops being
+    written keeps its last value, so an omitted status would read as stale.
+    """
+    for status, count in vehicle_counts.items():
+        FLEET_VEHICLES.labels(status).set(count)
+    FLEET_RENTALS_ONGOING.set(ongoing_rentals)
 
 
 def render_latest() -> Response:

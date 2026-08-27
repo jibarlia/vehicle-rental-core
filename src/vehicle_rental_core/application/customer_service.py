@@ -57,7 +57,6 @@ class CustomerService:
             self._reraise_duplicate_email(exc, email)
             raise
 
-        # Identifiers only: name, email and date of birth stay out of the logs.
         logger.info("Customer created", extra={"customer_id": str(created.id)})
         return created
 

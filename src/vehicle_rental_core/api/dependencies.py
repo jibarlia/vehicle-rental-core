@@ -5,6 +5,7 @@ from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from vehicle_rental_core.application.customer_service import CustomerService
+from vehicle_rental_core.application.fleet_metrics_service import FleetMetricsService
 from vehicle_rental_core.application.rental_service import RentalService
 from vehicle_rental_core.application.vehicle_service import VehicleService
 from vehicle_rental_core.core.config import Settings
@@ -94,6 +95,16 @@ def get_customer_service(
     return CustomerService(session, customer_repository)
 
 
+def get_fleet_metrics_service(
+    vehicle_repository: VehicleRepositoryDep,
+    rental_repository: RentalRepositoryDep,
+) -> FleetMetricsService:
+    return FleetMetricsService(vehicle_repository, rental_repository)
+
+
 VehicleServiceDep = Annotated[VehicleService, Depends(get_vehicle_service)]
 RentalServiceDep = Annotated[RentalService, Depends(get_rental_service)]
 CustomerServiceDep = Annotated[CustomerService, Depends(get_customer_service)]
+FleetMetricsServiceDep = Annotated[
+    FleetMetricsService, Depends(get_fleet_metrics_service)
+]

@@ -513,11 +513,40 @@ uv run pre-commit run --all-files
   context; customer names, email addresses, and dates of birth stay out of logs.
 - `GET /health` for liveness without touching external dependencies.
 - `GET /health/ready` for PostgreSQL readiness.
-- `GET /metrics` for Prometheus request counts and latency histograms.
-- Route-template metric labels such as `/vehicles/{vehicle_id}` keep cardinality
-  bounded.
+- `GET /metrics` for Prometheus, served in the text exposition format a Prometheus
+  server scrapes. Set `METRICS_ENABLED=false` to unmount it.
 - The container health check and CLI health check use the same database-readiness
   definition.
+
+### Metrics
+
+| Metric | Type | Labels | Meaning |
+| --- | --- | --- | --- |
+| `http_requests_total` | counter | `method`, `path`, `status` | Requests handled, including those that ended as a 500 |
+| `http_request_duration_seconds` | histogram | `method`, `path` | Request latency, with `_sum` and `_count` for averages |
+| `fleet_vehicles` | gauge | `status` | Vehicles per `VehicleStatus`, all four always emitted |
+| `fleet_rentals_ongoing` | gauge | — | Rentals with no end recorded |
+
+```promql
+# Average request latency over 5 minutes
+rate(http_request_duration_seconds_sum[5m])
+  / rate(http_request_duration_seconds_count[5m])
+
+# Active fleet: everything still in service
+sum(fleet_vehicles) - fleet_vehicles{status="retired"}
+
+# Cars out on rent right now
+fleet_rentals_ongoing
+```
+
+`path` is labelled with the route template — `/vehicles/{vehicle_id}`, never
+`/vehicles/8f3a…` — so a growing fleet cannot grow the number of time series.
+
+The two gauges are read from PostgreSQL during the scrape itself, which keeps them exact
+under any number of workers and free of the drift that in-process counters accumulate
+across restarts. If the database is unreachable the scrape still succeeds with the
+previous gauge values and logs `Fleet gauges not refreshed`, because a failed scrape
+would take the request metrics down alongside them.
 
 ## Technology stack
 
@@ -537,9 +566,9 @@ uv run pre-commit run --all-files
 
 ## Roadmap
 
-1. Add integration tests against PostgreSQL for repositories, migrations, and database
-   constraints.
-2. Introduce a Unit of Work as the explicit transaction and repository boundary.
-3. Add a transactional outbox and RabbitMQ audit consumer.
-4. Add authentication and authorization.
-5. Add reproducible performance benchmarks and load-test baselines.
+1. Add integration tests (using a test database based on the real schema)
+2. Add a transactional outbox and RabbitMQ audit consumer. ( @todo elaborate better)
+3. Add authentication and authorization.
+4. Add reproducible performance benchmarks and load-test baselines.
+5. Ship a Prometheus and Grafana stack in `docker-compose.yml` with a provisioned fleet
+   dashboard.
