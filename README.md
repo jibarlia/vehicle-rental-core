@@ -417,6 +417,30 @@ src/vehicle_rental_core/
 └── core/             # Configuration and observability
 ```
 
+### Future messaging boundary
+
+Messaging is intentionally absent from the current transactional path. Starting or
+completing a rental must return a definitive result, so routing those commands through
+a broker would add failure modes without satisfying a present requirement. Async
+FastAPI and database I/O provide concurrency; they do not make the workflow
+event-driven.
+
+The planned integration keeps broker concerns outside the business core: an
+application use case records an outbox message in the same PostgreSQL transaction as
+its state change, and a separate relay publishes it after the commit. This makes it
+possible to add messaging without making a successful rental depend on broker
+availability.
+
+Two deliberately separate extensions are documented:
+
+1. RabbitMQ for asynchronous report-generation jobs.
+2. Kafka for a future independent audit service with its own database.
+
+See the [messaging roadmap](docs/architecture/messaging-roadmap.md) for the proposed
+publisher-consumer flows and reliability model, and
+[ADR 0001](docs/decisions/0001-defer-message-queue.md) for the decision to defer their
+implementation.
+
 ## Key business flows
 
 | Flow | What happens | Consistency guarantee |
@@ -567,8 +591,11 @@ would take the request metrics down alongside them.
 ## Roadmap
 
 1. Add integration tests (using a test database based on the real schema)
-2. Add a transactional outbox and RabbitMQ audit consumer. ( @todo elaborate better)
-3. Add authentication and authorization.
-4. Add reproducible performance benchmarks and load-test baselines.
-5. Ship a Prometheus and Grafana stack in `docker-compose.yml` with a provisioned fleet
+2. Implement [asynchronous reports with RabbitMQ](docs/architecture/messaging-roadmap.md#roadmap-1-asynchronous-reports-with-rabbitmq)
+   when report generation becomes a requirement.
+3. Introduce [Kafka-backed audit events](docs/architecture/messaging-roadmap.md#roadmap-2-independent-audit-service-with-kafka)
+   if audit history becomes an independently owned capability.
+4. Add authentication and authorization.
+5. Add reproducible performance benchmarks and load-test baselines.
+6. Ship a Prometheus and Grafana stack in `docker-compose.yml` with a provisioned fleet
    dashboard.
