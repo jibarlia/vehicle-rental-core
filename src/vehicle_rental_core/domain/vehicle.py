@@ -105,12 +105,10 @@ class Vehicle(BaseModel):
     def change_status(
         self, status: VehicleStatus, *, at: datetime, has_active_rental: bool
     ) -> None:
-        """Apply a status change through the rules that govern it.
-
-        Every route into a status lands here, so nothing can skip the
-        active-rental guard or leave ``retired_at`` out of step with ``status``.
-        """
+        """Apply a status change through the rules that govern it."""
         self._validate_not_retired()
+        # Above the dispatch so a branch added below cannot skip it.
+        self._validate_no_active_rental(has_active_rental=has_active_rental)
 
         if status is VehicleStatus.RETIRED:
             self.retire(at=at, has_active_rental=has_active_rental)

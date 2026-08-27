@@ -291,6 +291,26 @@ class TestMaintenanceTransition:
         assert updated.status is VehicleStatus.AVAILABLE
         assert updated.retired_at is None
 
+    async def test_should_refuse_freeing_a_vehicle_that_is_still_rented(
+        self,
+        service: VehicleService,
+        vehicle_repository: AsyncMock,
+        rental_repository: AsyncMock,
+        session: AsyncMock,
+    ) -> None:
+        # Marking it available would hide the open rental: the fleet listing
+        # only looks up rentals for IN_USE vehicles.
+        vehicle_repository.get.return_value = _vehicle(status=VehicleStatus.IN_USE)
+        rental_repository.has_active_rental_for_vehicle.return_value = True
+
+        with pytest.raises(VehicleHasActiveRentalError):
+            await service.update(
+                uuid4(), VehicleChanges(status=VehicleStatus.AVAILABLE)
+            )
+
+        vehicle_repository.update.assert_not_awaited()
+        session.commit.assert_not_awaited()
+
     async def test_should_refuse_updating_an_retired_vehicle(
         self, service: VehicleService, vehicle_repository: AsyncMock, session: AsyncMock
     ) -> None:

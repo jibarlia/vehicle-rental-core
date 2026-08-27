@@ -128,6 +128,26 @@ class TestChangeStatus:
                 VehicleStatus.MAINTENANCE, at=NOW, has_active_rental=True
             )
 
+    def test_should_refuse_returning_to_available_while_a_rental_is_active(
+        self,
+    ) -> None:
+        vehicle = _vehicle(status=VehicleStatus.IN_USE)
+
+        with pytest.raises(VehicleHasActiveRentalError):
+            vehicle.change_status(
+                VehicleStatus.AVAILABLE, at=NOW, has_active_rental=True
+            )
+
+        assert vehicle.status is VehicleStatus.IN_USE
+
+    def test_should_refuse_marking_in_use_while_a_rental_is_active(self) -> None:
+        vehicle = _vehicle(status=VehicleStatus.MAINTENANCE)
+
+        with pytest.raises(VehicleHasActiveRentalError):
+            vehicle.change_status(VehicleStatus.IN_USE, at=NOW, has_active_rental=True)
+
+        assert vehicle.status is VehicleStatus.MAINTENANCE
+
     def test_should_stamp_retired_at_when_retiring_via_status_change(self) -> None:
         vehicle = _vehicle()
 
