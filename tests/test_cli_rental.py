@@ -1,6 +1,7 @@
 """The rental commands, with the API stubbed at the HTTP boundary."""
 
 import json
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -71,7 +72,10 @@ class TestStart:
             ],
         )
 
-        assert json.loads(seen[0].content)["start_at"].startswith("2026-06-01T09:00")
+        sent = json.loads(seen[0].content)["start_at"]
+        assert sent.startswith("2026-06-01T09:00")
+        # The API rejects naive input, so the local offset goes on the wire.
+        assert datetime.fromisoformat(sent).tzinfo is not None
 
     def test_should_report_an_unknown_customer(self, stub_api: Any) -> None:
         stub_api(
@@ -132,6 +136,17 @@ class TestEnd:
         runner.invoke(app, ["rental", "end", RENTAL_ID])
 
         assert json.loads(seen[0].content) == {}
+
+    def test_should_send_end_at_with_an_offset(self, stub_api: Any) -> None:
+        seen = stub_api(httpx.Response(200, json=RENTAL))
+
+        runner.invoke(
+            app, ["rental", "end", RENTAL_ID, "--end-at", "2026-06-05T10:00:00"]
+        )
+
+        sent = json.loads(seen[0].content)["end_at"]
+        assert sent.startswith("2026-06-05T10:00")
+        assert datetime.fromisoformat(sent).tzinfo is not None
 
     def test_should_report_an_already_ended_rental(self, stub_api: Any) -> None:
         stub_api(

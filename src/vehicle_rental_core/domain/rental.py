@@ -29,6 +29,20 @@ class Rental(BaseModel):
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
+    @field_validator("start_at", "end_at")
+    @classmethod
+    def _timezone_aware(cls, value: datetime | None) -> datetime | None:
+        """Reject a naive datetime rather than assume which zone it meant.
+
+        Both columns are timestamptz, so a naive value would otherwise reach the
+        comparison below against an aware one and raise TypeError.
+        """
+        if value is not None and value.tzinfo is None:
+            raise InvalidRentalPeriodError(
+                f"Rental timestamps must carry a timezone offset, got {value!r}."
+            )
+        return value
+
     @field_validator("end_at")
     @classmethod
     def _after_start(

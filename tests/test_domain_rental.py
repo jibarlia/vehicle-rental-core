@@ -37,6 +37,24 @@ class TestRentalPeriod:
             _rental(end_at=datetime(2025, 12, 31, tzinfo=UTC))
 
 
+class TestNaiveTimestamps:
+    def test_naive_start_at_should_be_rejected(self) -> None:
+        with pytest.raises(InvalidRentalPeriodError):
+            _rental(start_at=datetime(2026, 1, 1))
+
+    def test_naive_end_at_should_be_rejected(self) -> None:
+        with pytest.raises(InvalidRentalPeriodError):
+            _rental(end_at=datetime(2026, 1, 5))
+
+    def test_completing_with_a_naive_end_should_be_rejected(self) -> None:
+        rental = _rental()
+
+        with pytest.raises(InvalidRentalPeriodError):
+            rental.complete(datetime(2026, 1, 5))
+
+        assert rental.is_active is True
+
+
 class TestCompletingARental:
     def test_should_close_an_active_rental(self) -> None:
         rental = _rental()

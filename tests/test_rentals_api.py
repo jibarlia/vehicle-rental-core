@@ -144,6 +144,16 @@ class TestCompleteRental:
         assert response.status_code == 200
         assert rental_service.complete.await_args.kwargs["end_at"] == ended
 
+    async def test_should_return_422_for_a_naive_end_at(
+        self, client: AsyncClient, rental_service: AsyncMock
+    ) -> None:
+        response = await client.post(
+            f"/rentals/{uuid4()}/complete", json={"end_at": "2026-06-05T10:00:00"}
+        )
+
+        assert response.status_code == 422
+        rental_service.complete.assert_not_awaited()
+
     async def test_should_return_404_for_an_unknown_rental(
         self, client: AsyncClient, rental_service: AsyncMock
     ) -> None:

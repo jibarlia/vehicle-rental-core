@@ -36,7 +36,7 @@ def start(
         "customer_id": str(customer_id),
     }
     if start_at is not None:
-        payload["start_at"] = start_at.isoformat()
+        payload["start_at"] = _client.as_iso(start_at)
 
     created = _client.request("POST", "/rentals", override=base_url, json=payload)
     _client.render(created, as_json=as_json)
@@ -54,7 +54,7 @@ def end(
     """End a rental and release the vehicle."""
     payload: dict[str, object] = {}
     if end_at is not None:
-        payload["end_at"] = end_at.isoformat()
+        payload["end_at"] = _client.as_iso(end_at)
 
     closed = _client.request(
         "POST", f"/rentals/{rental_id}/complete", override=base_url, json=payload

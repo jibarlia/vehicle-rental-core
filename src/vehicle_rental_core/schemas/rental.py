@@ -1,18 +1,19 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AwareDatetime, BaseModel, ConfigDict
 
 
 class RentalCreate(BaseModel):
     vehicle_id: UUID
     # Must already exist: the name is snapshotted from their record.
     customer_id: UUID
-    start_at: datetime | None = None
+    # Aware: a naive instant would be ambiguous against the timestamptz column.
+    start_at: AwareDatetime | None = None
 
 
 class RentalComplete(BaseModel):
-    end_at: datetime | None = None
+    end_at: AwareDatetime | None = None
 
 
 class ActiveRentalRead(BaseModel):

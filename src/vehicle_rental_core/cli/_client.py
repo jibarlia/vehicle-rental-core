@@ -2,7 +2,6 @@
 
 from datetime import datetime
 from typing import Any
-from uuid import UUID
 
 import httpx
 import typer
@@ -122,8 +121,9 @@ def _cell(value: Any) -> str:
 
 
 def as_iso(value: datetime | None) -> str | None:
-    return value.isoformat() if value is not None else None
+    """Serialize an instant for the API, which rejects naive timestamps.
 
-
-def as_str(value: UUID | None) -> str | None:
-    return str(value) if value is not None else None
+    Typer parses datetime options as naive; astimezone() reads those as local
+    time, which is what someone typing a bare timestamp meant.
+    """
+    return value.astimezone().isoformat() if value is not None else None
