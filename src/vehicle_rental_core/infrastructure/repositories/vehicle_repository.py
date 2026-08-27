@@ -2,6 +2,7 @@ from uuid import UUID
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.exc import StaleDataError
 
 from vehicle_rental_core.domain.enums import VehicleStatus
 from vehicle_rental_core.domain.errors import ConcurrentUpdateError
@@ -81,14 +82,16 @@ class VehicleRepository:
         if model is None:
             raise ConcurrentUpdateError(f"Vehicle {vehicle.id} no longer exists.")
 
-        # The caller read version N; the row has since moved on.
-        if model.version != vehicle.version:
+        apply_vehicle(model, vehicle)
+        try:
+            # version_id_col narrows the UPDATE by version; matching no row
+            # means another transaction got there first.
+            await self._session.flush()
+        except StaleDataError as exc:
             raise ConcurrentUpdateError(
                 f"Vehicle {vehicle.id} was modified by another transaction."
-            )
+            ) from exc
 
-        apply_vehicle(model, vehicle)
-        await self._session.flush()
         await self._session.refresh(model)
         return vehicle_to_domain(model)
 

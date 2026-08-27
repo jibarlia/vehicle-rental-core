@@ -3,13 +3,20 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
+from sqlalchemy.orm.exc import StaleDataError
 
 from vehicle_rental_core.domain.enums import VehicleStatus, VehicleType
+from vehicle_rental_core.domain.errors import ConcurrentUpdateError
+from vehicle_rental_core.domain.vehicle import Vehicle
 from vehicle_rental_core.infrastructure.repositories.vehicle_repository import (
     VehicleRepository,
 )
 
 NOW = datetime(2026, 6, 1, tzinfo=UTC)
+
+
+def _vehicle() -> Vehicle:
+    return Vehicle(registration_number="AA-111", model="Corolla", year=2022)
 
 
 @pytest.fixture
@@ -111,6 +118,39 @@ class TestList:
         assert "ORDER BY vehicles.created_at DESC, vehicles.id DESC" in _executed_sql(
             session
         )
+
+
+class TestUpdate:
+    async def test_should_reject_a_vehicle_whose_row_is_gone(
+        self, repository: VehicleRepository, session: AsyncMock
+    ) -> None:
+        # MagicMock, not AsyncMock: scalar_one_or_none is sync.
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = None
+        session.execute.return_value = result
+
+        with pytest.raises(ConcurrentUpdateError):
+            await repository.update(_vehicle())
+
+        session.flush.assert_not_awaited()
+
+    async def test_should_turn_a_lost_version_race_into_a_conflict(
+        self, repository: VehicleRepository, session: AsyncMock
+    ) -> None:
+        # Uncaught, version_id_col's StaleDataError reaches the catch-all
+        # handler as a 500, where the documented answer is 409.
+        vehicle = _vehicle()
+        model = MagicMock()
+        # Matching, as the identity map guarantees: the row the flush races
+        # against is the one already loaded.
+        model.version = vehicle.version
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = model
+        session.execute.return_value = result
+        session.flush.side_effect = StaleDataError("UPDATE matched 0 rows")
+
+        with pytest.raises(ConcurrentUpdateError):
+            await repository.update(vehicle)
 
 
 class TestCountByStatus:
