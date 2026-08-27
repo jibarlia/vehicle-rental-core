@@ -64,3 +64,20 @@ class TestListActiveForVehicles:
         rentals = await repository.list_active_for_vehicles([vehicle_id])
 
         assert [rental.vehicle_id for rental in rentals] == [vehicle_id]
+
+
+class TestCountActiveRentals:
+    async def test_should_count_only_rentals_without_an_end(
+        self, repository: RentalRepository, session: AsyncMock
+    ) -> None:
+        # MagicMock, not AsyncMock: scalar_one is sync.
+        result = MagicMock()
+        result.scalar_one.return_value = 5
+        session.execute.return_value = result
+
+        assert await repository.count_active_rentals() == 5
+
+        statement = session.execute.await_args.args[0]
+        sql = str(statement.compile(compile_kwargs={"literal_binds": True}))
+        assert "count(*)" in sql
+        assert "rentals.end_at IS NULL" in sql

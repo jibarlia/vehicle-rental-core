@@ -9,8 +9,11 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from vehicle_rental_core.api.app import create_app
-from vehicle_rental_core.api.dependencies import get_session
+from vehicle_rental_core.api.dependencies import get_fleet_metrics_service, get_session
+from vehicle_rental_core.application.fleet_metrics_service import FleetMetricsService
+from vehicle_rental_core.application.views import FleetMetrics
 from vehicle_rental_core.core.config import Settings
+from vehicle_rental_core.domain.enums import VehicleStatus
 
 
 @pytest.fixture
@@ -34,13 +37,38 @@ def session() -> AsyncMock:
 
 
 @pytest.fixture
-def app(settings: Settings, session: AsyncMock) -> Iterator[FastAPI]:
-    app = create_app(settings)
+def fleet_metrics_service() -> AsyncMock:
+    """Stand-in for the service /metrics scrapes the gauges from.
+
+    Overridden rather than driven through the mock session, because the
+    repositories would hand back mocks the service cannot tally.
+    """
+    service = AsyncMock(spec=FleetMetricsService)
+    service.collect.return_value = FleetMetrics(
+        vehicle_counts=dict.fromkeys(VehicleStatus, 0),
+        ongoing_rentals=0,
+    )
+    return service
+
+
+def override_dependencies(
+    app: FastAPI, session: AsyncMock, fleet_metrics_service: AsyncMock
+) -> None:
+    """Sever the app's two database seams. Shared with tests building their own."""
 
     async def override_get_session() -> AsyncIterator[AsyncMock]:
         yield session
 
     app.dependency_overrides[get_session] = override_get_session
+    app.dependency_overrides[get_fleet_metrics_service] = lambda: fleet_metrics_service
+
+
+@pytest.fixture
+def app(
+    settings: Settings, session: AsyncMock, fleet_metrics_service: AsyncMock
+) -> Iterator[FastAPI]:
+    app = create_app(settings)
+    override_dependencies(app, session, fleet_metrics_service)
     yield app
     app.dependency_overrides.clear()
 
