@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
@@ -42,6 +42,21 @@ class Rental(BaseModel):
                 f"Rental timestamps must carry a timezone offset, got {value!r}."
             )
         return value
+
+    @field_validator("start_at")
+    @classmethod
+    def _not_in_the_future(cls, start_at: datetime) -> datetime:
+        """Reject a start no rental could have had.
+
+        Backdating stays open — recording a rental that already ran is ordinary
+        — but a future start would mark the vehicle in use for a rental that
+        has not begun.
+        """
+        if start_at > datetime.now(UTC):
+            raise InvalidRentalPeriodError(
+                f"Rental cannot start in the future, got {start_at.isoformat()}."
+            )
+        return start_at
 
     @field_validator("end_at")
     @classmethod

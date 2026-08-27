@@ -1,5 +1,5 @@
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -11,6 +11,7 @@ from vehicle_rental_core.domain.customer import Customer
 from vehicle_rental_core.domain.enums import VehicleStatus
 from vehicle_rental_core.domain.errors import (
     CustomerNotFoundError,
+    InvalidRentalPeriodError,
     RentalNotFoundError,
     VehicleHasActiveRentalError,
     VehicleNotFoundError,
@@ -106,6 +107,46 @@ class TestStartRental:
             vehicle_repository.update.await_args.args[0].status is VehicleStatus.IN_USE
         )
         session.commit.assert_awaited_once()
+
+    async def test_should_reject_a_rental_starting_in_the_future(
+        self,
+        service: RentalService,
+        vehicle_repository: AsyncMock,
+        rental_repository: AsyncMock,
+        session: AsyncMock,
+    ) -> None:
+        # The entity rejects it; what matters here is that nothing was written
+        # first, since the vehicle is marked in_use after the rental is built.
+        vehicle_repository.get.return_value = _vehicle()
+
+        with pytest.raises(InvalidRentalPeriodError):
+            await service.start(
+                vehicle_id=uuid4(),
+                customer_id=uuid4(),
+                start_at=datetime.now(UTC) + timedelta(days=1),
+            )
+
+        vehicle_repository.update.assert_not_awaited()
+        rental_repository.add.assert_not_awaited()
+        session.commit.assert_not_awaited()
+
+    async def test_should_accept_a_backdated_start(
+        self,
+        service: RentalService,
+        vehicle_repository: AsyncMock,
+        rental_repository: AsyncMock,
+    ) -> None:
+        # Recording a rental that already ran stays supported; only the future
+        # is refused.
+        backdated = NOW - timedelta(days=3)
+        vehicle_repository.get.return_value = _vehicle()
+        rental_repository.add.side_effect = lambda rental: rental
+
+        created = await service.start(
+            vehicle_id=uuid4(), customer_id=uuid4(), start_at=backdated
+        )
+
+        assert created.start_at == backdated
 
     async def test_should_snapshot_the_customer_name_onto_the_rental(
         self,

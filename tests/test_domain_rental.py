@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -35,6 +35,31 @@ class TestRentalPeriod:
     def test_end_at_before_start_at_should_be_rejected(self) -> None:
         with pytest.raises(InvalidRentalPeriodError):
             _rental(end_at=datetime(2025, 12, 31, tzinfo=UTC))
+
+
+class TestStartInTheFuture:
+    """The bound is the real clock, as it is for a vehicle's model year."""
+
+    @staticmethod
+    def _tomorrow() -> datetime:
+        return datetime.now(UTC) + timedelta(days=1)
+
+    def test_should_reject_a_start_in_the_future(self) -> None:
+        with pytest.raises(InvalidRentalPeriodError):
+            _rental(start_at=self._tomorrow())
+
+    def test_should_accept_a_backdated_start(self) -> None:
+        # Recording a rental that already ran is ordinary, so only the future
+        # is refused.
+        assert _rental(start_at=START).start_at == START
+
+    def test_should_reject_a_future_start_on_assignment_too(self) -> None:
+        rental = _rental()
+
+        with pytest.raises(InvalidRentalPeriodError):
+            rental.start_at = self._tomorrow()
+
+        assert rental.start_at == START
 
 
 class TestNaiveTimestamps:
